@@ -143,13 +143,13 @@ STYLE = """
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.6;
       margin: 0;
-      padding: 24px 16px 40px;
+      padding: 0;
       color: #f3f4f6;
       background: #1A2130;
     }
     .page {
-      width: min(1280px, calc(100vw - 32px));
-      margin: 0 auto;
+      width: 100%;
+      margin: 0;
     }
     h1, h2, h3 { line-height: 1.25; }
     .meta { color: #94a3b8; margin-top: 0; }
@@ -157,14 +157,14 @@ STYLE = """
     .note { background: #202634; border-left: 4px solid #60a5fa; padding: 12px 16px; border-radius: 8px; }
     .section { margin-top: 1.25rem; }
     .report {
-      border: 1px solid #2b3446;
-      border-radius: 20px;
-      padding: 24px 28px 16px;
-      box-shadow: 0 18px 40px rgba(0,0,0,.24);
-      margin-bottom: 18px;
+      border: 0;
+      border-radius: 0;
+      padding: 24px 28px 20px;
+      box-shadow: none;
+      margin: 0;
       background: #202634;
     }
-    .report + .report { margin-top: 18px; }
+    .report + .report { margin-top: 0; border-top: 1px solid #2b3446; }
     .report > h1 {
       margin: 2px 0 16px;
       font-size: clamp(1.55rem, 2vw, 2rem);
@@ -199,6 +199,12 @@ STYLE = """
       margin-top: 22px;
       padding-top: 18px;
       border-top: 1px solid #2b3446;
+    }
+    .page > .disclaimer {
+      margin: 0;
+      border-radius: 0;
+      border-left: 0;
+      border-right: 0;
     }
     .news-list {
       list-style: none;
@@ -243,7 +249,7 @@ def render_article(md_path: Path) -> str:
     clean_title = re.sub(r"\s*\((Draft|Published)\)$", "", title).strip()
     status = "Published" if "(Published)" in title or "Published" in title else ("Draft" if "(Draft)" in title or "Draft" in title else "Report")
     badge_class = "published" if status == "Published" else "draft" if status == "Draft" else "published"
-    eyebrow = "장 마감" if status == "Published" else "장 시작"
+    eyebrow = "장 시작" if "open-report" in md_path.name else "장 마감"
 
     return f"""    <article class=\"report\">
       <div class=\"eyebrow {badge_class}\">{eyebrow}</div>
