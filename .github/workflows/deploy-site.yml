@@ -8,6 +8,7 @@ on:
       - 'landingpage/**'
       - 'skills/**'
       - 'optional-skills/**'
+      - 'docs/agent-outputs/analyst/**'
       - '.github/workflows/deploy-site.yml'
   workflow_dispatch:
 
@@ -42,6 +43,9 @@ jobs:
 
       - name: Install PyYAML for skill extraction
         run: pip install pyyaml
+
+      - name: Render public market report
+        run: python3 website/scripts/render_report.py
 
       - name: Extract skill metadata for dashboard
         run: python3 website/scripts/extract-skills.py
