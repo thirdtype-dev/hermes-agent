@@ -29,47 +29,32 @@ RELATED_NEWS = [
     {
         "slug": "news-1",
         "title": "美·이란 협상 기대에 유가↓ 코스피 상승",
-        "source": "연합뉴스",
-        "body": [
-            "유가 부담이 완화되면 제조·운송·화학 업종의 비용 부담이 줄어들 수 있어 국내 증시에 우호적인 해석이 가능하다.",
-            "이런 국면에서는 지수 방향성보다도 대형주와 수출주, 그리고 원가 민감 업종의 상대 강도를 함께 보는 편이 유리하다.",
-        ],
+        "source": "한경",
+        "url": "https://www.hankyung.com/article/2026040747936",
     },
     {
         "slug": "news-2",
         "title": "다우 흐름 속 뉴욕증시 변동성 점검",
-        "source": "연합뉴스",
-        "body": [
-            "미국 증시의 장중 변동성이 커지면 국내 장초반에도 위험선호가 흔들릴 수 있어 선물 흐름과 대형 기술주의 반응이 중요하다.",
-            "다우가 버티는지, 나스닥이 흔들리는지에 따라 다음 장의 업종 순환 속도도 달라질 수 있다.",
-        ],
+        "source": "G Economy",
+        "url": "https://www.geconomy.co.kr/news/article.html?no=317649",
     },
     {
         "slug": "news-3",
         "title": "외국인·기관 수급 전환 업종 확대 여부",
-        "source": "연합뉴스",
-        "body": [
-            "외국인과 기관이 동시에 들어오는 업종이 넓어지면 단기 반등이 아니라 추세 확장의 신호로 읽을 여지가 커진다.",
-            "반대로 수급이 몇 개 대형주에만 쏠리면 장의 폭은 좁고 지속성은 약할 수 있다.",
-        ],
+        "source": "핀포인트뉴스",
+        "url": "https://www.pinpointnews.co.kr/news/articleView.html?idxno=439949",
     },
     {
         "slug": "news-4",
         "title": "코스피 거래대금 확대와 대형주 중심 매수세",
-        "source": "연합뉴스",
-        "body": [
-            "거래대금 확대는 시장 참여가 살아있다는 뜻이지만, 실제로는 대형주 쏠림인지 업종 전반 확산인지 구분해야 한다.",
-            "대형주 중심 매수세가 이어질 때는 지수 방어는 가능하지만, 중소형주까지 번져야 체감 장세가 좋아진다.",
-        ],
+        "source": "이데일리",
+        "url": "https://news.einfomax.co.kr/news/articleView.html?idxno=4404048",
     },
     {
         "slug": "news-5",
         "title": "코스닥 1%대 상승, 중소형주 확산 확인",
-        "source": "연합뉴스",
-        "body": [
-            "코스닥이 강하면 위험선호가 살아있다는 신호로 해석할 수 있지만, 거래대금과 업종 breadth가 같이 붙어야 의미가 커진다.",
-            "중소형주 확산이 단발성인지 지속형인지 확인하려면 시가 이후 유지력과 종가 강도를 같이 봐야 한다.",
-        ],
+        "source": "위클리오늘",
+        "url": "http://www.weeklytoday.com/news/articleView.html?idxno=760466",
     },
 ]
 
@@ -89,50 +74,11 @@ def render_related_news() -> str:
     for item in RELATED_NEWS:
         items.append(
             "<li class=\"news-item\">"
-            f'<a class="news-link" href="articles/{item["slug"]}.html">{html.escape(item["title"])}</a>'
-            f'<span class="news-source">{html.escape(item["source"])} · 본문 페이지</span>'
+            f'<a class="news-link" href="{html.escape(item["url"], quote=True)}" target="_blank" rel="noopener">{html.escape(item["title"])}</a>'
+            f'<span class="news-source">{html.escape(item["source"])} · 원문</span>'
             "</li>"
         )
     return "<section class=\"news-section\"><h2>주요 뉴스</h2><ul class=\"news-list\">" + "".join(items) + "</ul></section>"
-
-
-def render_news_article_page(item: dict) -> str:
-    body = "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in item["body"])
-    return f"""<!doctype html>
-<html lang=\"ko\">
-  <head>
-    <meta charset=\"utf-8\" />
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-    <title>{html.escape(item['title'])} - 브리핑</title>
-    <style>
-{STYLE}
-      .article-nav {{ margin-bottom: 14px; }}
-      .article-back {{ color: #93c5fd; font-weight: 600; }}
-      .article-shell {{ padding-bottom: 4px; }}
-    </style>
-  </head>
-  <body>
-    <main class=\"page article-shell\">
-      <article class=\"report\">
-        <div class=\"article-nav\"><a class=\"article-back\" href=\"../index.html\">← 목록으로</a></div>
-        <div class=\"eyebrow published\">뉴스 본문</div>
-        <h1>{html.escape(item['title'])}</h1>
-        <div class=\"news-source\">{html.escape(item['source'])}</div>
-        <div class=\"news-article\">
-{body}
-        </div>
-      </article>
-    </main>
-  </body>
-</html>
-"""
-
-
-def render_news_pages(output_dir: Path) -> None:
-    article_dir = output_dir / "articles"
-    article_dir.mkdir(parents=True, exist_ok=True)
-    for item in RELATED_NEWS:
-        (article_dir / f"{item['slug']}.html").write_text(render_news_article_page(item), encoding="utf-8")
 
 
 def inline_format(text: str) -> str:
@@ -366,8 +312,7 @@ def main() -> int:
     articles = [render_article(close_md), render_article(open_md)]
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        f"""<!doctype html>
+    html_out = f"""<!doctype html>
 <html lang=\"ko\">
   <head>
     <meta charset=\"utf-8\" />
@@ -384,10 +329,8 @@ def main() -> int:
     </main>
   </body>
 </html>
-""",
-        encoding="utf-8",
-    )
-    render_news_pages(output.parent)
+"""
+    output.write_text(html_out, encoding="utf-8")
     print(f"wrote {output}")
     return 0
 

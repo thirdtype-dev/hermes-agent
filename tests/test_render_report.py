@@ -36,13 +36,10 @@ def test_render_report_writes_to_custom_output(tmp_path, monkeypatch):
     assert "뉴스 본문" not in html
     assert "美·이란 협상 기대에 유가↓ 코스피 상승" in html
     assert "news.google.com" not in html
-    assert 'href="articles/news-1.html"' in html
-    assert "본문 페이지" in html
+    assert 'href="https://www.hankyung.com/article/2026040747936"' in html
+    assert 'target="_blank"' in html
+    assert "원문" in html
+    assert "본문 페이지" not in html
     assert "본문으로 이동" not in html
     assert "본 서비스의 투자 정보는 단순 참고용이며" in html
-    article = output.parent / "articles" / "news-1.html"
-    assert article.exists()
-    article_html = article.read_text(encoding="utf-8")
-    assert "뉴스 본문" in article_html
-    assert "목록으로" in article_html
-    assert "유가 부담이 완화되면 제조·운송·화학 업종의 비용 부담이 줄어들 수 있어" in article_html
+    assert not (output.parent / "articles").exists()
