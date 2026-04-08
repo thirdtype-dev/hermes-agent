@@ -26,7 +26,8 @@ def test_render_report_writes_to_custom_output(tmp_path, monkeypatch):
     assert exit_code == 0
     assert output.exists()
     html = output.read_text(encoding="utf-8")
-    assert html.count("2026-04-07 브리핑") >= 2
+    assert "2026-04-07 브리핑" in html
+    assert "2026-04-08 브리핑" in html
     assert "장 시작" in html
     assert "GitHub Pages publish" not in html
     assert "Source:" not in html

@@ -11,6 +11,7 @@ import argparse
 import html
 import re
 import sys
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,16 +75,31 @@ def latest(pattern: str) -> Path | None:
     return files[-1] if files else None
 
 
+def _news_date(item: dict) -> date:
+    return datetime.strptime(item["published_at"].split()[0], "%Y.%m.%d").date()
+
+
+def select_related_news() -> list[dict]:
+    today = date.today()
+    today_items = [item for item in RELATED_NEWS if _news_date(item) == today]
+    if today_items:
+        return today_items
+
+    yesterday = today - timedelta(days=1)
+    yesterday_items = [item for item in RELATED_NEWS if _news_date(item) == yesterday]
+    return yesterday_items
+
+
 def render_related_news() -> str:
     items = []
-    for item in RELATED_NEWS:
+    for item in select_related_news():
         items.append(
-            "<li class=\"news-item\">"
+            '<li class="news-item">'
             f'<a class="news-link" href="{html.escape(item["url"], quote=True)}" target="_blank" rel="noopener">{html.escape(item["title"])}</a>'
             f'<span class="news-source">{html.escape(item["source"])} · {html.escape(item["published_at"])}</span>'
-            "</li>"
+            '</li>'
         )
-    return "<section class=\"news-section\"><h2>주요 뉴스</h2><ul class=\"news-list\">" + "".join(items) + "</ul></section>"
+    return '<section class="news-section"><h2>주요 뉴스</h2><ul class="news-list">' + ''.join(items) + '</ul></section>'
 
 
 def inline_format(text: str) -> str:
