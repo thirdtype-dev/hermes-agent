@@ -23,6 +23,7 @@ BULLET_RE = re.compile(r"^-\s+(.+)$")
 STRONG_RE = re.compile(r"\*\*(.+?)\*\*")
 CODE_RE = re.compile(r"`([^`]+)`")
 LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+SUPPRESS_SECTION_HEADINGS = {"발행 상태", "출처 검증 고지"}
 
 
 def latest(pattern: str) -> Path | None:
@@ -48,6 +49,7 @@ def render_markdown(md: str) -> tuple[str, str]:
     parts: list[str] = []
     paragraph: list[str] = []
     in_ul = False
+    skip_heading_level: int | None = None
 
     def flush_paragraph() -> None:
         nonlocal paragraph
@@ -70,10 +72,23 @@ def render_markdown(md: str) -> tuple[str, str]:
 
         heading = HEADING_RE.match(line)
         if heading:
+            level = len(heading.group(1))
+            heading_text = heading.group(2).strip()
+            if skip_heading_level is not None and level <= skip_heading_level:
+                skip_heading_level = None
+            if skip_heading_level is not None:
+                continue
+            if heading_text in SUPPRESS_SECTION_HEADINGS:
+                flush_paragraph()
+                close_list()
+                skip_heading_level = level
+                continue
             flush_paragraph()
             close_list()
-            level = len(heading.group(1))
-            parts.append(f"<h{level}>{inline_format(heading.group(2))}</h{level}>")
+            parts.append(f"<h{level}>{inline_format(heading_text)}</h{level}>")
+            continue
+
+        if skip_heading_level is not None:
             continue
 
         bullet = BULLET_RE.match(line)
@@ -93,35 +108,76 @@ def render_markdown(md: str) -> tuple[str, str]:
 
 
 STYLE = """
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.6; margin: 40px auto; max-width: 920px; padding: 0 20px; color: #1f2937; background: #fff; }
+    :root { color-scheme: dark; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 24px 16px 40px;
+      color: #f3f4f6;
+      background: #1A2130;
+    }
+    .page {
+      width: min(1280px, calc(100vw - 32px));
+      margin: 0 auto;
+    }
     h1, h2, h3 { line-height: 1.25; }
-    h1 { margin-bottom: 0.25rem; }
-    .meta { color: #6b7280; margin-top: 0; }
-    .published, .draft { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 0.92rem; margin: 0.25rem 0 1rem; }
-    .published { background: #dcfce7; color: #166534; }
-    .draft { background: #fef3c7; color: #92400e; }
+    .meta { color: #94a3b8; margin-top: 0; }
     ul { padding-left: 1.25rem; }
-    .note { background: #f9fafb; border-left: 4px solid #60a5fa; padding: 12px 16px; border-radius: 8px; }
+    .note { background: #202634; border-left: 4px solid #60a5fa; padding: 12px 16px; border-radius: 8px; }
     .section { margin-top: 1.25rem; }
-    .report { border: 1px solid #e5e7eb; border-radius: 18px; padding: 22px 22px 10px; box-shadow: 0 10px 30px rgba(0,0,0,.04); margin-bottom: 18px; }
+    .report {
+      border: 1px solid #2b3446;
+      border-radius: 20px;
+      padding: 24px 28px 14px;
+      box-shadow: 0 18px 40px rgba(0,0,0,.24);
+      margin-bottom: 18px;
+      background: #202634;
+    }
     .report + .report { margin-top: 18px; }
-    .small { font-size: 0.95rem; color: #4b5563; }
-    code { background: #f3f4f6; padding: 0 4px; border-radius: 4px; }
-    a { color: #2563eb; text-decoration: none; }
+    .report > h1 {
+      margin: 2px 0 16px;
+      font-size: clamp(1.55rem, 2vw, 2rem);
+      letter-spacing: -0.02em;
+      color: #ffffff;
+    }
+    .report h2 {
+      margin-top: 20px;
+      margin-bottom: 10px;
+      color: #e5e7eb;
+      font-size: 1.08rem;
+    }
+    .report p, .report li { color: #dbe4f0; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 12px;
+    }
+    .eyebrow.published { background: rgba(34,197,94,.16); color: #86efac; }
+    .eyebrow.draft { background: rgba(245,158,11,.16); color: #fcd34d; }
+    .small { font-size: 0.95rem; color: #cbd5e1; }
+    code { background: #111827; padding: 0 4px; border-radius: 4px; }
+    a { color: #93c5fd; text-decoration: none; }
     a:hover { text-decoration: underline; }
 """
 
 
 def render_article(md_path: Path) -> str:
     title, body = render_markdown(md_path.read_text(encoding="utf-8"))
+    clean_title = re.sub(r"\s*\((Draft|Published)\)$", "", title).strip()
     status = "Published" if "(Published)" in title or "Published" in title else ("Draft" if "(Draft)" in title or "Draft" in title else "Report")
     badge_class = "published" if status == "Published" else "draft" if status == "Draft" else "published"
-    badge_text = "Published · 장 마감 반영" if status == "Published" else "Draft · 출처 검증 대기" if status == "Draft" else "Published"
+    eyebrow = "장 마감" if status == "Published" else "장 시작"
 
     return f"""    <article class=\"report\">
-      <h1>{html.escape(title)}</h1>
-      <p class=\"meta\">Source: <code>{html.escape(str(md_path.relative_to(ROOT)))}</code></p>
-      <div class=\"{badge_class}\">{badge_text}</div>
+      <div class=\"eyebrow {badge_class}\">{eyebrow}</div>
+      <h1>{html.escape(clean_title)}</h1>
 {body}
     </article>"""
 
@@ -147,15 +203,15 @@ def main() -> int:
   <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-    <title>시장 리포트</title>
+    <title>브리핑</title>
     <style>
 {STYLE}
     </style>
   </head>
   <body>
-    <h1>시장 리포트</h1>
-    <p class=\"meta\">GitHub Pages publish · public page: <code>/report/index.html</code></p>
+    <main class=\"page\">
 {chr(10).join(articles)}
+    </main>
   </body>
 </html>
 """,

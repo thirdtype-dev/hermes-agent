@@ -27,7 +27,12 @@ def test_render_report_writes_to_custom_output(tmp_path, monkeypatch):
     assert output.exists()
     html = output.read_text(encoding="utf-8")
     assert "2026-04-07 장시작 리포트" in html
-    assert "2026-04-07 장종료 리포트" in html
-    assert "Draft · 출처 검증 대기" in html
+    assert "2026-04-07 브리핑" in html
+    assert "장 시작" in html
+    assert "GitHub Pages publish" not in html
+    assert "Source:" not in html
+    assert "Draft · 출처 검증 대기" not in html
     assert "<article class=\"report\">" in html
-    assert "Source: <code>docs/agent-outputs/analyst/market-open-report-2026-04-07.md</code>" in html
+    assert "<h1>시장 리포트</h1>" not in html
+    assert "발행 상태" not in html
+    assert "출처 검증 고지" not in html
