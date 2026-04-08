@@ -89,25 +89,50 @@ def render_related_news() -> str:
     for item in RELATED_NEWS:
         items.append(
             "<li class=\"news-item\">"
-            f'<a class="news-link" href="#{item["slug"]}">{html.escape(item["title"])}</a>'
-            f'<span class="news-source">{html.escape(item["source"])} · 본문으로 이동</span>'
+            f'<a class="news-link" href="articles/{item["slug"]}.html">{html.escape(item["title"])}</a>'
+            f'<span class="news-source">{html.escape(item["source"])} · 본문 페이지</span>'
             "</li>"
         )
     return "<section class=\"news-section\"><h2>주요 뉴스</h2><ul class=\"news-list\">" + "".join(items) + "</ul></section>"
 
 
-def render_news_articles() -> str:
-    sections = []
+def render_news_article_page(item: dict) -> str:
+    body = "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in item["body"])
+    return f"""<!doctype html>
+<html lang=\"ko\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <title>{html.escape(item['title'])} - 브리핑</title>
+    <style>
+{STYLE}
+      .article-nav {{ margin-bottom: 14px; }}
+      .article-back {{ color: #93c5fd; font-weight: 600; }}
+      .article-shell {{ padding-bottom: 4px; }}
+    </style>
+  </head>
+  <body>
+    <main class=\"page article-shell\">
+      <article class=\"report\">
+        <div class=\"article-nav\"><a class=\"article-back\" href=\"../index.html\">← 목록으로</a></div>
+        <div class=\"eyebrow published\">뉴스 본문</div>
+        <h1>{html.escape(item['title'])}</h1>
+        <div class=\"news-source\">{html.escape(item['source'])}</div>
+        <div class=\"news-article\">
+{body}
+        </div>
+      </article>
+    </main>
+  </body>
+</html>
+"""
+
+
+def render_news_pages(output_dir: Path) -> None:
+    article_dir = output_dir / "articles"
+    article_dir.mkdir(parents=True, exist_ok=True)
     for item in RELATED_NEWS:
-        body = "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in item["body"])
-        sections.append(
-            f'<section class="news-article" id="{item["slug"]}">'
-            f'<h2>{html.escape(item["title"])}</h2>'
-            f'<div class="news-source">{html.escape(item["source"])}</div>'
-            f"{body}"
-            "</section>"
-        )
-    return "<section class=\"news-body\"><h2>뉴스 본문</h2>" + "".join(sections) + "</section>"
+        (article_dir / f"{item['slug']}.html").write_text(render_news_article_page(item), encoding="utf-8")
 
 
 def inline_format(text: str) -> str:
@@ -208,21 +233,21 @@ STYLE = """
     .report {
       border: 0;
       border-radius: 0;
-      padding: 24px 28px 20px;
+      padding: 18px 14px 18px;
       box-shadow: none;
       margin: 0;
       background: #202634;
     }
-    .report + .report { margin-top: 16px; border-top: 1px solid #2b3446; }
+    .report + .report { margin-top: 12px; border-top: 1px solid #2b3446; }
     .report > h1 {
-      margin: 2px 0 16px;
-      font-size: clamp(1.55rem, 2vw, 2rem);
+      margin: 2px 0 12px;
+      font-size: clamp(1.4rem, 1.8vw, 1.85rem);
       letter-spacing: -0.02em;
       color: #ffffff;
     }
     .report h2 {
-      margin-top: 20px;
-      margin-bottom: 10px;
+      margin-top: 16px;
+      margin-bottom: 8px;
       color: #e5e7eb;
       font-size: 1.08rem;
     }
@@ -236,7 +261,7 @@ STYLE = """
       font-size: 0.82rem;
       font-weight: 700;
       letter-spacing: 0.02em;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .eyebrow.published { background: rgba(34,197,94,.16); color: #86efac; }
     .eyebrow.draft { background: rgba(245,158,11,.16); color: #fcd34d; }
@@ -245,8 +270,8 @@ STYLE = """
     a { color: #93c5fd; text-decoration: none; }
     a:hover { text-decoration: underline; }
     .news-section {
-      margin-top: 22px;
-      padding-top: 18px;
+      margin-top: 16px;
+      padding-top: 12px;
       border-top: 1px solid #2b3446;
     }
     .page > .disclaimer {
@@ -260,16 +285,16 @@ STYLE = """
       padding-left: 0;
       margin: 0;
       display: grid;
-      gap: 10px;
+      gap: 8px;
     }
     .news-item {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: #1a2130;
-      border: 1px solid #2b3446;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #202634;
+      border: 1px solid #334155;
     }
     .news-link {
       color: #bfdbfe;
@@ -282,17 +307,17 @@ STYLE = """
       color: #94a3b8;
     }
     .news-body {
-      margin-top: 24px;
-      padding-top: 20px;
+      margin-top: 16px;
+      padding-top: 12px;
       border-top: 1px solid #2b3446;
     }
     .news-article {
-      margin-top: 14px;
-      padding: 16px 18px 18px;
-      border-radius: 16px;
-      background: #111827;
+      margin-top: 12px;
+      padding: 14px 14px 16px;
+      border-radius: 12px;
+      background: #1a2130;
       border: 1px solid #2b3446;
-      scroll-margin-top: 12px;
+      scroll-margin-top: 8px;
     }
     .news-article h2 {
       margin: 0 0 6px;
@@ -300,10 +325,10 @@ STYLE = """
       font-size: 1rem;
     }
     .disclaimer {
-      margin-top: 12px;
-      padding: 14px 16px;
+      margin-top: 16px;
+      padding: 14px 14px;
       border: 1px solid #334155;
-      border-radius: 14px;
+      border-radius: 12px;
       background: #111827;
       color: #cbd5e1;
       font-size: 0.92rem;
@@ -323,7 +348,6 @@ def render_article(md_path: Path) -> str:
       <h1>{html.escape(clean_title)}</h1>
 {body}
 {render_related_news()}
-{render_news_articles()}
     </article>"""
 
 
@@ -363,6 +387,7 @@ def main() -> int:
 """,
         encoding="utf-8",
     )
+    render_news_pages(output.parent)
     print(f"wrote {output}")
     return 0
 
