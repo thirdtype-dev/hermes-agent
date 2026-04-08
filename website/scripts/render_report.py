@@ -30,30 +30,35 @@ RELATED_NEWS = [
         "slug": "news-1",
         "title": "美·이란 협상 기대에 유가↓ 코스피 상승",
         "source": "한경",
+        "published_at": "2026.04.07 16:00",
         "url": "https://www.hankyung.com/article/2026040747936",
     },
     {
         "slug": "news-2",
         "title": "다우 흐름 속 뉴욕증시 변동성 점검",
         "source": "G Economy",
+        "published_at": "2026.03.18 05:34:33",
         "url": "https://www.geconomy.co.kr/news/article.html?no=317649",
     },
     {
         "slug": "news-3",
         "title": "외국인·기관 수급 전환 업종 확대 여부",
         "source": "핀포인트뉴스",
+        "published_at": "2026.03.25 16:58:50",
         "url": "https://www.pinpointnews.co.kr/news/articleView.html?idxno=439949",
     },
     {
         "slug": "news-4",
         "title": "코스피 거래대금 확대와 대형주 중심 매수세",
         "source": "이데일리",
+        "published_at": "2026.03.17 08:41:00",
         "url": "https://news.einfomax.co.kr/news/articleView.html?idxno=4404048",
     },
     {
         "slug": "news-5",
         "title": "코스닥 1%대 상승, 중소형주 확산 확인",
         "source": "위클리오늘",
+        "published_at": "2026.02.23 09:46:50",
         "url": "http://www.weeklytoday.com/news/articleView.html?idxno=760466",
     },
 ]
@@ -75,7 +80,7 @@ def render_related_news() -> str:
         items.append(
             "<li class=\"news-item\">"
             f'<a class="news-link" href="{html.escape(item["url"], quote=True)}" target="_blank" rel="noopener">{html.escape(item["title"])}</a>'
-            f'<span class="news-source">{html.escape(item["source"])} · 원문</span>'
+            f'<span class="news-source">{html.escape(item["source"])} · {html.escape(item["published_at"])}</span>'
             "</li>"
         )
     return "<section class=\"news-section\"><h2>주요 뉴스</h2><ul class=\"news-list\">" + "".join(items) + "</ul></section>"

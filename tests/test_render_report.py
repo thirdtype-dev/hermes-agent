@@ -38,7 +38,8 @@ def test_render_report_writes_to_custom_output(tmp_path, monkeypatch):
     assert "news.google.com" not in html
     assert 'href="https://www.hankyung.com/article/2026040747936"' in html
     assert 'target="_blank"' in html
-    assert "원문" in html
+    assert "2026.04.07 16:00" in html
+    assert "원문" not in html
     assert "본문 페이지" not in html
     assert "본문으로 이동" not in html
     assert "본 서비스의 투자 정보는 단순 참고용이며" in html
