@@ -12,6 +12,7 @@ import html
 import re
 import sys
 from pathlib import Path
+from urllib.parse import quote_plus
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_DIR = ROOT / "docs" / "agent-outputs" / "analyst"
@@ -25,10 +26,39 @@ CODE_RE = re.compile(r"`([^`]+)`")
 LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 SUPPRESS_SECTION_HEADINGS = {"발행 상태", "출처 검증 고지"}
 
+RELATED_NEWS = [
+    ("美·이란 협상 기대에 유가↓ 코스피 상승", "연합뉴스"),
+    ("다우 흐름 속 뉴욕증시 변동성 점검", "연합뉴스"),
+    ("외국인·기관 수급 전환 업종 확대 여부", "연합뉴스"),
+    ("코스피 거래대금 확대와 대형주 중심 매수세", "연합뉴스"),
+    ("코스닥 1%대 상승, 중소형주 확산 확인", "연합뉴스"),
+]
+
+DISCLAIMER = (
+    "본 서비스의 투자 정보는 단순 참고용이며, 종목 추천이나 투자 권유가 아닙니다. "
+    "최종적인 투자 결정과 그에 따른 책임은 투자자 본인에게 있음을 알려드립니다"
+)
+
 
 def latest(pattern: str) -> Path | None:
     files = sorted(SOURCE_DIR.glob(pattern))
     return files[-1] if files else None
+
+
+def news_url(title: str) -> str:
+    return f"https://news.google.com/search?q={quote_plus(title)}&hl=ko&gl=KR&ceid=KR:ko"
+
+
+def render_related_news() -> str:
+    items = []
+    for title, source in RELATED_NEWS:
+        items.append(
+            "<li class=\"news-item\">"
+            f'<a class="news-link" href="{news_url(title)}" target="_blank" rel="noopener">{html.escape(title)}</a>'
+            f'<span class="news-source">{html.escape(source)}</span>'
+            "</li>"
+        )
+    return "<section class=\"news-section\"><h2>주요 뉴스</h2><ul class=\"news-list\">" + "".join(items) + "</ul></section>"
 
 
 def inline_format(text: str) -> str:
@@ -129,7 +159,7 @@ STYLE = """
     .report {
       border: 1px solid #2b3446;
       border-radius: 20px;
-      padding: 24px 28px 14px;
+      padding: 24px 28px 16px;
       box-shadow: 0 18px 40px rgba(0,0,0,.24);
       margin-bottom: 18px;
       background: #202634;
@@ -165,6 +195,46 @@ STYLE = """
     code { background: #111827; padding: 0 4px; border-radius: 4px; }
     a { color: #93c5fd; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .news-section {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid #2b3446;
+    }
+    .news-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+      display: grid;
+      gap: 10px;
+    }
+    .news-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #1a2130;
+      border: 1px solid #2b3446;
+    }
+    .news-link {
+      color: #bfdbfe;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .news-link:hover { text-decoration: underline; }
+    .news-source {
+      font-size: 0.88rem;
+      color: #94a3b8;
+    }
+    .disclaimer {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      background: #111827;
+      color: #cbd5e1;
+      font-size: 0.92rem;
+    }
 """
 
 
@@ -179,6 +249,7 @@ def render_article(md_path: Path) -> str:
       <div class=\"eyebrow {badge_class}\">{eyebrow}</div>
       <h1>{html.escape(clean_title)}</h1>
 {body}
+{render_related_news()}
     </article>"""
 
 
@@ -211,6 +282,7 @@ def main() -> int:
   <body>
     <main class=\"page\">
 {chr(10).join(articles)}
+      <section class=\"disclaimer\">{DISCLAIMER}</section>
     </main>
   </body>
 </html>
