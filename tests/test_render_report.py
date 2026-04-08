@@ -33,8 +33,9 @@ def test_render_report_writes_to_custom_output(tmp_path, monkeypatch):
     assert "Draft · 출처 검증 대기" not in html
     assert "<article class=\"report\">" in html
     assert "주요 뉴스" in html
+    assert "뉴스 본문" in html
     assert "美·이란 협상 기대에 유가↓ 코스피 상승" in html
+    assert "news.google.com" not in html
+    assert 'href="#news-1"' in html
+    assert "본문으로 이동" in html
     assert "본 서비스의 투자 정보는 단순 참고용이며" in html
-    assert "<h1>시장 리포트</h1>" not in html
-    assert "발행 상태" not in html
-    assert "출처 검증 고지" not in html

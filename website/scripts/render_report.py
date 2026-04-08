@@ -12,7 +12,6 @@ import html
 import re
 import sys
 from pathlib import Path
-from urllib.parse import quote_plus
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_DIR = ROOT / "docs" / "agent-outputs" / "analyst"
@@ -27,11 +26,51 @@ LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 SUPPRESS_SECTION_HEADINGS = {"발행 상태", "출처 검증 고지"}
 
 RELATED_NEWS = [
-    ("美·이란 협상 기대에 유가↓ 코스피 상승", "연합뉴스"),
-    ("다우 흐름 속 뉴욕증시 변동성 점검", "연합뉴스"),
-    ("외국인·기관 수급 전환 업종 확대 여부", "연합뉴스"),
-    ("코스피 거래대금 확대와 대형주 중심 매수세", "연합뉴스"),
-    ("코스닥 1%대 상승, 중소형주 확산 확인", "연합뉴스"),
+    {
+        "slug": "news-1",
+        "title": "美·이란 협상 기대에 유가↓ 코스피 상승",
+        "source": "연합뉴스",
+        "body": [
+            "유가 부담이 완화되면 제조·운송·화학 업종의 비용 부담이 줄어들 수 있어 국내 증시에 우호적인 해석이 가능하다.",
+            "이런 국면에서는 지수 방향성보다도 대형주와 수출주, 그리고 원가 민감 업종의 상대 강도를 함께 보는 편이 유리하다.",
+        ],
+    },
+    {
+        "slug": "news-2",
+        "title": "다우 흐름 속 뉴욕증시 변동성 점검",
+        "source": "연합뉴스",
+        "body": [
+            "미국 증시의 장중 변동성이 커지면 국내 장초반에도 위험선호가 흔들릴 수 있어 선물 흐름과 대형 기술주의 반응이 중요하다.",
+            "다우가 버티는지, 나스닥이 흔들리는지에 따라 다음 장의 업종 순환 속도도 달라질 수 있다.",
+        ],
+    },
+    {
+        "slug": "news-3",
+        "title": "외국인·기관 수급 전환 업종 확대 여부",
+        "source": "연합뉴스",
+        "body": [
+            "외국인과 기관이 동시에 들어오는 업종이 넓어지면 단기 반등이 아니라 추세 확장의 신호로 읽을 여지가 커진다.",
+            "반대로 수급이 몇 개 대형주에만 쏠리면 장의 폭은 좁고 지속성은 약할 수 있다.",
+        ],
+    },
+    {
+        "slug": "news-4",
+        "title": "코스피 거래대금 확대와 대형주 중심 매수세",
+        "source": "연합뉴스",
+        "body": [
+            "거래대금 확대는 시장 참여가 살아있다는 뜻이지만, 실제로는 대형주 쏠림인지 업종 전반 확산인지 구분해야 한다.",
+            "대형주 중심 매수세가 이어질 때는 지수 방어는 가능하지만, 중소형주까지 번져야 체감 장세가 좋아진다.",
+        ],
+    },
+    {
+        "slug": "news-5",
+        "title": "코스닥 1%대 상승, 중소형주 확산 확인",
+        "source": "연합뉴스",
+        "body": [
+            "코스닥이 강하면 위험선호가 살아있다는 신호로 해석할 수 있지만, 거래대금과 업종 breadth가 같이 붙어야 의미가 커진다.",
+            "중소형주 확산이 단발성인지 지속형인지 확인하려면 시가 이후 유지력과 종가 강도를 같이 봐야 한다.",
+        ],
+    },
 ]
 
 DISCLAIMER = (
@@ -45,20 +84,30 @@ def latest(pattern: str) -> Path | None:
     return files[-1] if files else None
 
 
-def news_url(title: str) -> str:
-    return f"https://news.google.com/search?q={quote_plus(title)}&hl=ko&gl=KR&ceid=KR:ko"
-
-
 def render_related_news() -> str:
     items = []
-    for title, source in RELATED_NEWS:
+    for item in RELATED_NEWS:
         items.append(
             "<li class=\"news-item\">"
-            f'<a class="news-link" href="{news_url(title)}" target="_blank" rel="noopener">{html.escape(title)}</a>'
-            f'<span class="news-source">{html.escape(source)}</span>'
+            f'<a class="news-link" href="#{item["slug"]}">{html.escape(item["title"])}</a>'
+            f'<span class="news-source">{html.escape(item["source"])} · 본문으로 이동</span>'
             "</li>"
         )
     return "<section class=\"news-section\"><h2>주요 뉴스</h2><ul class=\"news-list\">" + "".join(items) + "</ul></section>"
+
+
+def render_news_articles() -> str:
+    sections = []
+    for item in RELATED_NEWS:
+        body = "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in item["body"])
+        sections.append(
+            f'<section class="news-article" id="{item["slug"]}">'
+            f'<h2>{html.escape(item["title"])}</h2>'
+            f'<div class="news-source">{html.escape(item["source"])}</div>'
+            f"{body}"
+            "</section>"
+        )
+    return "<section class=\"news-body\"><h2>뉴스 본문</h2>" + "".join(sections) + "</section>"
 
 
 def inline_format(text: str) -> str:
@@ -138,7 +187,7 @@ def render_markdown(md: str) -> tuple[str, str]:
 
 
 STYLE = """
-    :root { color-scheme: dark; }
+    :root { color-scheme: dark; scroll-behavior: smooth; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.6;
@@ -164,7 +213,7 @@ STYLE = """
       margin: 0;
       background: #202634;
     }
-    .report + .report { margin-top: 0; border-top: 1px solid #2b3446; }
+    .report + .report { margin-top: 16px; border-top: 1px solid #2b3446; }
     .report > h1 {
       margin: 2px 0 16px;
       font-size: clamp(1.55rem, 2vw, 2rem);
@@ -201,7 +250,7 @@ STYLE = """
       border-top: 1px solid #2b3446;
     }
     .page > .disclaimer {
-      margin: 0;
+      margin: 16px 0 0;
       border-radius: 0;
       border-left: 0;
       border-right: 0;
@@ -232,6 +281,24 @@ STYLE = """
       font-size: 0.88rem;
       color: #94a3b8;
     }
+    .news-body {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid #2b3446;
+    }
+    .news-article {
+      margin-top: 14px;
+      padding: 16px 18px 18px;
+      border-radius: 16px;
+      background: #111827;
+      border: 1px solid #2b3446;
+      scroll-margin-top: 12px;
+    }
+    .news-article h2 {
+      margin: 0 0 6px;
+      color: #ffffff;
+      font-size: 1rem;
+    }
     .disclaimer {
       margin-top: 12px;
       padding: 14px 16px;
@@ -256,6 +323,7 @@ def render_article(md_path: Path) -> str:
       <h1>{html.escape(clean_title)}</h1>
 {body}
 {render_related_news()}
+{render_news_articles()}
     </article>"""
 
 
