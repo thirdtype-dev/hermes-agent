@@ -221,8 +221,8 @@ class TestFromGlobalConfig:
             config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.base_url == "http://config-host:9000"
 
-    def test_base_url_not_read_from_host_block(self, tmp_path):
-        """baseUrl is a root-level connection setting, not overridable per-host (consistent with apiKey)."""
+    def test_base_url_reads_host_block_override(self, tmp_path):
+        """baseUrl should respect the active host block before falling back to root-level config."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "baseUrl": "http://root:9000",
@@ -230,7 +230,7 @@ class TestFromGlobalConfig:
         }))
 
         config = HonchoClientConfig.from_global_config(config_path=config_file)
-        assert config.base_url == "http://root:9000"
+        assert config.base_url == "http://host-block:9001"
 
 
 class TestResolveSessionName:

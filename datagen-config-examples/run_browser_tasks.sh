@@ -10,7 +10,7 @@
 # Distribution: browser 97%, web 20%, vision 12%, terminal 15%
 #
 # Prerequisites:
-#   - OPENROUTER_API_KEY in ~/.hermes/.env
+#   - OPENAI_API_KEY in ~/.hermes/.env
 #   - BROWSERBASE_API_KEY in ~/.hermes/.env (for browser tools)
 #   - A dataset JSONL file with one {"prompt": "..."} per line
 #
@@ -34,8 +34,8 @@ python batch_runner.py \
   --batch_size=5 \
   --run_name="browser_tasks_example" \
   --distribution="browser_tasks" \
-  --model="anthropic/claude-sonnet-4" \
-  --base_url="https://openrouter.ai/api/v1" \
+  --model="gpt-5.4-mini" \
+  --base_url="https://api.openai.com/v1" \
   --num_workers=3 \
   --max_turns=30 \
   --ephemeral_system_prompt="You are an AI assistant with browser automation capabilities. Your primary task is to navigate and interact with web pages to accomplish user goals.

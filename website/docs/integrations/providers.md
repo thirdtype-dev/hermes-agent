@@ -257,7 +257,7 @@ Once a custom endpoint is configured, you can switch models mid-session:
 ```
 /model custom:qwen-2.5          # Switch to a model on your custom endpoint
 /model custom                    # Auto-detect the model from the endpoint
-/model openrouter:claude-sonnet-4 # Switch back to a cloud provider
+/model openai-codex:gpt-5.4-mini # Switch back to a cloud provider
 ```
 
 If you have **named custom providers** configured (see below), use the triple syntax:
@@ -823,7 +823,9 @@ custom_providers:
 
 ### Named Custom Providers
 
-If you work with multiple custom endpoints (e.g., a local dev server and a remote GPU server), you can define them as named custom providers in `config.yaml`:
+If you work with multiple custom endpoints (e.g., a local dev server and a remote GPU server), you can define them as named custom providers in `config.yaml`.
+This is the pattern used by the live worker `executor-gemma` / `devg` setup: the role points at `custom:lm-studio-gemma`, and Hermes resolves that to the saved LM Studio endpoint.
+Keep Gemma out of the top-level fallback_model and other shared defaults; reserve it for executor-gemma so the global fallback stays on the Codex default.
 
 ```yaml
 custom_providers:
@@ -931,7 +933,7 @@ Configure a backup provider:model that Hermes switches to automatically when you
 
 ```yaml
 fallback_model:
-  provider: openrouter                    # required
+  provider: openai-codex                  # required
   model: anthropic/claude-sonnet-4        # required
   # base_url: http://localhost:8000/v1    # optional, for custom endpoints
   # api_key_env: MY_CUSTOM_KEY           # optional, env var name for custom endpoint API key
@@ -955,7 +957,7 @@ smart_model_routing:
   max_simple_chars: 160
   max_simple_words: 28
   cheap_model:
-    provider: openrouter
+    provider: openai-codex
     model: google/gemini-2.5-flash
     # base_url: http://localhost:8000/v1  # optional custom endpoint
     # api_key_env: MY_CUSTOM_KEY          # optional env var name for that endpoint's API key

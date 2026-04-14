@@ -940,6 +940,23 @@ class TestLastPromptTokens:
         entry = SessionEntry.from_dict(data)
         assert entry.last_prompt_tokens == 0
 
+    def test_session_entry_from_legacy_timestamp_data(self):
+        """Legacy float timestamps should still deserialize."""
+        from gateway.session import SessionEntry
+        data = {
+            "session_key": "test",
+            "session_id": "s1",
+            "created_at": 1735689600.0,
+            "updated_at": 1735689600.5,
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "total_tokens": 150,
+        }
+        entry = SessionEntry.from_dict(data)
+        assert entry.created_at.year == 2025
+        assert entry.updated_at.year == 2025
+        assert entry.updated_at > entry.created_at
+
     def test_update_session_sets_last_prompt_tokens(self, tmp_path):
         """update_session should store the actual prompt token count."""
         config = GatewayConfig()

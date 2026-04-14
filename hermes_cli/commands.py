@@ -137,6 +137,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("reload", "Reload .env variables into the running session", "Tools & Skills"),
     CommandDef("reload-mcp", "Reload MCP servers from config", "Tools & Skills",
                aliases=("reload_mcp",)),
+    CommandDef("live-workers", "Sync live workers from LIVE_WORKERS.md without restarting the gateway", "Tools & Skills",
+               gateway_only=True, aliases=("reload_workers",)),
     CommandDef("browser", "Connect browser tools to your live Chrome via CDP", "Tools & Skills",
                cli_only=True, args_hint="[connect|disconnect|status]",
                subcommands=("connect", "disconnect", "status")),

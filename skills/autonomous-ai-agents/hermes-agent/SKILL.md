@@ -445,6 +445,8 @@ Voice commands: `/voice on` (voice-to-voice), `/voice tts` (always voice), `/voi
 
 Run additional Hermes processes as fully independent subprocesses — separate sessions, tools, and environments.
 
+Default to interactive, long-lived workers for anything that needs follow-up, live status, or retries. Use one-shot runs only for truly stateless, fire-and-forget tasks.
+
 ### When to Use This vs delegate_task
 
 | | `delegate_task` | Spawning `hermes` process |
@@ -453,20 +455,11 @@ Run additional Hermes processes as fully independent subprocesses — separate s
 | Duration | Minutes (bounded by parent loop) | Hours/days |
 | Tool access | Subset of parent's tools | Full tool access |
 | Interactive | No | Yes (PTY mode) |
-| Use case | Quick parallel subtasks | Long autonomous missions |
-
-### One-Shot Mode
-
-```
-terminal(command="hermes chat -q 'Research GRPO papers and write summary to ~/research/grpo.md'", timeout=300)
-
-# Background for long tasks:
-terminal(command="hermes chat -q 'Set up CI/CD for ~/myapp'", background=true)
-```
+| Use case | Quick parallel subtasks | Long-lived interactive workers |
 
 ### Interactive PTY Mode (via tmux)
 
-Hermes uses prompt_toolkit, which requires a real terminal. Use tmux for interactive spawning:
+Hermes uses prompt_toolkit, which requires a real terminal. Use tmux for interactive spawning and keep the session attached to a stable worker name:
 
 ```
 # Start
@@ -515,8 +508,8 @@ terminal(command="tmux new-session -d -s resumed 'hermes --resume 20260225_14305
 
 - **Prefer `delegate_task` for quick subtasks** — less overhead than spawning a full process
 - **Use `-w` (worktree mode)** when spawning agents that edit code — prevents git conflicts
-- **Set timeouts** for one-shot mode — complex tasks can take 5-10 minutes
-- **Use `hermes chat -q` for fire-and-forget** — no PTY needed
+- **Prefer tmux-backed interactive sessions** for anything expected to stay live, accept follow-ups, or report blockers
+- **Use `hermes chat -q` only for true one-shot jobs** — avoid it for workers you need to keep attached
 - **Use tmux for interactive sessions** — raw PTY mode has `\r` vs `\n` issues with prompt_toolkit
 - **For scheduled tasks**, use the `cronjob` tool instead of spawning — handles delivery and retry
 

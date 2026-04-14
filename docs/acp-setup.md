@@ -160,7 +160,7 @@ directly.
 Edit `~/.hermes/config.yaml`:
 
 ```yaml
-model: openrouter/nous/hermes-3-llama-3.1-70b
+model: gpt-5.4-mini
 ```
 
 Or set the `HERMES_MODEL` environment variable.

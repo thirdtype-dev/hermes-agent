@@ -595,21 +595,6 @@ DEFAULT_CONFIG = {
         "provider": "",
     },
 
-    # Subagent delegation — override the provider:model used by delegate_task
-    # so child agents can run on a different (cheaper/faster) provider and model.
-    # Uses the same runtime provider resolution as CLI/gateway startup, so all
-    # configured providers (OpenRouter, Nous, Z.ai, Kimi, etc.) are supported.
-    "delegation": {
-        "model": "",       # e.g. "google/gemini-3-flash-preview" (empty = inherit parent model)
-        "provider": "",    # e.g. "openrouter" (empty = inherit parent provider + credentials)
-        "base_url": "",    # direct OpenAI-compatible endpoint for subagents
-        "api_key": "",     # API key for delegation.base_url (falls back to OPENAI_API_KEY)
-        "max_iterations": 50,  # per-subagent iteration cap (each subagent gets its own budget,
-                               # independent of the parent's max_iterations)
-        "reasoning_effort": "",  # reasoning effort for subagents: "xhigh", "high", "medium",
-                                 # "low", "minimal", "none" (empty = inherit parent's level)
-    },
-
     # Ephemeral prefill messages file — JSON list of {role, content} dicts
     # injected at the start of every API call for few-shot priming.
     # Never saved to sessions, logs, or trajectories.
@@ -1785,7 +1770,7 @@ def check_config_version() -> Tuple[int, int]:
 _KNOWN_ROOT_KEYS = {
     "_config_version", "model", "providers", "fallback_model",
     "fallback_providers", "credential_pool_strategies", "toolsets",
-    "agent", "terminal", "display", "compression", "delegation",
+    "agent", "terminal", "display", "compression",
     "auxiliary", "custom_providers", "context", "memory", "gateway",
 }
 
@@ -1878,7 +1863,7 @@ def validate_config_structure(config: Optional[Dict[str, Any]] = None) -> List["
                 f"fallback_model should be a dict with 'provider' and 'model', got {type(fb).__name__}",
                 "Change to:\n"
                 "  fallback_model:\n"
-                "    provider: openrouter\n"
+                "    provider: openai-codex\n"
                 "    model: anthropic/claude-sonnet-4",
             ))
         elif fb:
@@ -1886,7 +1871,7 @@ def validate_config_structure(config: Optional[Dict[str, Any]] = None) -> List["
                 issues.append(ConfigIssue(
                     "warning",
                     "fallback_model is missing 'provider' field — fallback will be disabled",
-                    "Add: provider: openrouter (or another provider)",
+                    "Add: provider: openai-codex (or another provider)",
                 ))
             if not fb.get("model"):
                 issues.append(ConfigIssue(
@@ -2538,7 +2523,7 @@ _FALLBACK_COMMENT = """
 # overload (529), service errors (503), or connection failures.
 #
 # Supported providers:
-#   openrouter   (OPENROUTER_API_KEY)  — routes to any model
+#   openai-codex (OAuth — hermes auth) — OpenAI Codex
 #   openai-codex (OAuth — hermes auth) — OpenAI Codex
 #   nous         (OAuth — hermes auth) — Nous Portal
 #   zai          (ZAI_API_KEY)         — Z.AI / GLM
@@ -2550,7 +2535,7 @@ _FALLBACK_COMMENT = """
 # For custom OpenAI-compatible endpoints, add base_url and api_key_env.
 #
 # fallback_model:
-#   provider: openrouter
+#   provider: openai-codex
 #   model: anthropic/claude-sonnet-4
 #
 # ── Smart Model Routing ────────────────────────────────────────────────
@@ -2563,7 +2548,7 @@ _FALLBACK_COMMENT = """
 #   max_simple_chars: 160
 #   max_simple_words: 28
 #   cheap_model:
-#     provider: openrouter
+#     provider: openai-codex
 #     model: google/gemini-2.5-flash
 """
 
@@ -2582,7 +2567,7 @@ _COMMENTED_SECTIONS = """
 # overload (529), service errors (503), or connection failures.
 #
 # Supported providers:
-#   openrouter   (OPENROUTER_API_KEY)  — routes to any model
+#   openai-codex (OAuth — hermes auth) — OpenAI Codex
 #   openai-codex (OAuth — hermes auth) — OpenAI Codex
 #   nous         (OAuth — hermes auth) — Nous Portal
 #   zai          (ZAI_API_KEY)         — Z.AI / GLM
@@ -2594,7 +2579,7 @@ _COMMENTED_SECTIONS = """
 # For custom OpenAI-compatible endpoints, add base_url and api_key_env.
 #
 # fallback_model:
-#   provider: openrouter
+#   provider: openai-codex
 #   model: anthropic/claude-sonnet-4
 #
 # ── Smart Model Routing ────────────────────────────────────────────────
@@ -2607,7 +2592,7 @@ _COMMENTED_SECTIONS = """
 #   max_simple_chars: 160
 #   max_simple_words: 28
 #   cheap_model:
-#     provider: openrouter
+#     provider: openai-codex
 #     model: google/gemini-2.5-flash
 """
 

@@ -55,6 +55,7 @@ class HookRegistry:
         """Register built-in hooks that are always active."""
         try:
             from gateway.builtin_hooks.boot_md import handle as boot_md_handle
+            from gateway.builtin_hooks.live_workers import handle as live_workers_handle
 
             self._handlers.setdefault("gateway:startup", []).append(boot_md_handle)
             self._loaded_hooks.append({
@@ -63,8 +64,16 @@ class HookRegistry:
                 "events": ["gateway:startup"],
                 "path": "(builtin)",
             })
+
+            self._handlers.setdefault("gateway:startup", []).append(live_workers_handle)
+            self._loaded_hooks.append({
+                "name": "live-workers",
+                "description": "Sync AIAgent workers from ~/.hermes/LIVE_WORKERS.md on gateway startup",
+                "events": ["gateway:startup"],
+                "path": "(builtin)",
+            })
         except Exception as e:
-            print(f"[hooks] Could not load built-in boot-md hook: {e}", flush=True)
+            print(f"[hooks] Could not load built-in startup hooks: {e}", flush=True)
 
     def discover_and_load(self) -> None:
         """

@@ -2615,11 +2615,20 @@ class GatewayRunner:
             if _cmd_def_inner and _cmd_def_inner.name == "restart":
                 return await self._handle_restart_command(event)
 
+            if _cmd_def_inner and _cmd_def_inner.name == "live-workers":
+                return await self._handle_live_workers_command(event)
+
             # /stop must hard-kill the session when an agent is running.
             # A soft interrupt (agent.interrupt()) doesn't help when the agent
             # is truly hung — the executor thread is blocked and never checks
             # _interrupt_requested.  Force-clean _running_agents so the session
             # is unlocked and subsequent messages are processed normally.
+            if _cmd_def_inner and _cmd_def_inner.name == "restart":
+                return await self._handle_restart_command(event)
+
+            if _cmd_def_inner and _cmd_def_inner.name == "live-workers":
+                return await self._handle_live_workers_command(event)
+
             if _cmd_def_inner and _cmd_def_inner.name == "stop":
                 running_agent = self._running_agents.get(_quick_key)
                 if running_agent and running_agent is not _AGENT_PENDING_SENTINEL:
@@ -2765,7 +2774,10 @@ class GatewayRunner:
 
         if canonical == "restart":
             return await self._handle_restart_command(event)
-        
+
+        if canonical == "live-workers":
+            return await self._handle_live_workers_command(event)
+
         if canonical == "stop":
             return await self._handle_stop_command(event)
         
@@ -4229,6 +4241,20 @@ class GatewayRunner:
             return "⚡ Stopped. You can continue this session."
         else:
             return "No active task to stop."
+
+    async def _handle_live_workers_command(self, event: MessageEvent) -> str:
+        """Sync live workers from LIVE_WORKERS.md without restarting the gateway."""
+        from gateway.builtin_hooks.live_workers import handle as live_workers_handle
+
+        summary = await live_workers_handle("gateway:manual", {})
+        if isinstance(summary, dict):
+            started = len(summary.get("started", []))
+            replaced = len(summary.get("replaced", []))
+            removed = len(summary.get("removed", []))
+            interrupted = len(summary.get("interrupted", []))
+            if not any((started, replaced, removed, interrupted)):
+                return "ℹ Live workers already match LIVE_WORKERS.md. Gateway stayed online."
+        return "🔄 Live workers synced from LIVE_WORKERS.md. Gateway stayed online."
 
     async def _handle_restart_command(self, event: MessageEvent) -> str:
         """Handle /restart command - drain active work, then restart the gateway."""

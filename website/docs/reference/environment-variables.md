@@ -369,7 +369,7 @@ Older configs with `compression.summary_model`, `compression.summary_provider`, 
 | `AUXILIARY_WEB_EXTRACT_BASE_URL` | Direct OpenAI-compatible endpoint for web extraction/summarization |
 | `AUXILIARY_WEB_EXTRACT_API_KEY` | API key paired with `AUXILIARY_WEB_EXTRACT_BASE_URL` |
 
-For task-specific direct endpoints, Hermes uses the task's configured API key or `OPENAI_API_KEY`. It does not reuse `OPENROUTER_API_KEY` for those custom endpoints.
+For task-specific direct endpoints, Hermes uses the task's configured API key or `OPENAI_API_KEY`. It does not reuse the provider credential pool for those custom endpoints.
 
 ## Fallback Model (config.yaml only)
 
@@ -377,8 +377,8 @@ The primary model fallback is configured exclusively through `config.yaml` — t
 
 ```yaml
 fallback_model:
-  provider: openrouter
-  model: anthropic/claude-sonnet-4
+  provider: openai-codex
+  model: gpt-5.4-mini
 ```
 
 See [Fallback Providers](/docs/user-guide/features/fallback-providers) for full details.

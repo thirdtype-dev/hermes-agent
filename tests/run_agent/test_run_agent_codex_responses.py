@@ -70,6 +70,16 @@ def _build_copilot_agent(monkeypatch, *, model="gpt-5.4"):
     return agent
 
 
+def test_codex_client_uses_long_timeout(monkeypatch):
+    """Codex-backed runtime clients should get a longer HTTP timeout."""
+    agent = _build_agent(monkeypatch)
+
+    timeout = agent._client_kwargs.get("timeout")
+    assert timeout is not None
+    assert getattr(timeout, "connect", None) == 30.0
+    assert getattr(timeout, "read", None) == 900.0
+
+
 def _codex_message_response(text: str):
     return SimpleNamespace(
         output=[

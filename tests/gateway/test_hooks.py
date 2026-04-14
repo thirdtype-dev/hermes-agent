@@ -47,6 +47,15 @@ class TestDiscoverAndLoad:
         assert reg.loaded_hooks[0]["name"] == "my-hook"
         assert "agent:start" in reg.loaded_hooks[0]["events"]
 
+    def test_registers_builtin_startup_hooks(self, tmp_path):
+        reg = HookRegistry()
+        with patch("gateway.hooks.HOOKS_DIR", tmp_path / "nonexistent"):
+            reg.discover_and_load()
+
+        names = [hook["name"] for hook in reg.loaded_hooks]
+        assert "boot-md" in names
+        assert "live-workers" in names
+
     def test_skips_missing_hook_yaml(self, tmp_path):
         hook_dir = tmp_path / "bad-hook"
         hook_dir.mkdir()

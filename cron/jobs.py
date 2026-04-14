@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from hermes_constants import get_hermes_home
+from hermes_cli.config import load_config
 from typing import Optional, Dict, List, Any
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,26 @@ def _apply_skill_fields(job: Dict[str, Any]) -> Dict[str, Any]:
     normalized["skills"] = skills
     normalized["skill"] = skills[0] if skills else None
     return normalized
+
+
+def _get_cron_runtime_defaults() -> Dict[str, str]:
+    """Return defaults for new cron jobs, with config overrides when present."""
+    defaults = {
+        "model": "gpt-5.4-mini",
+        "provider": "openai-codex",
+        "base_url": "https://chatgpt.com/backend-api/codex",
+    }
+    try:
+        cfg = load_config() or {}
+        cron_cfg = cfg.get("cron", {}) if isinstance(cfg, dict) else {}
+        if isinstance(cron_cfg, dict):
+            for key in ("model", "provider", "base_url"):
+                value = cron_cfg.get(key)
+                if isinstance(value, str) and value.strip():
+                    defaults[key] = value.strip().rstrip("/") if key == "base_url" else value.strip()
+    except Exception:
+        pass
+    return defaults
 
 
 def _secure_dir(path: Path):
@@ -382,6 +403,9 @@ def create_job(
     """
     Create a new cron job.
 
+    New jobs inherit their runtime from cron defaults in config.yaml, which
+    currently point to LM Studio unless overridden per job.
+
     Args:
         prompt: The prompt to run (must be self-contained, or a task instruction when skill is set)
         schedule: Schedule string (see parse_schedule)
@@ -418,10 +442,11 @@ def create_job(
     job_id = uuid.uuid4().hex[:12]
     now = _hermes_now().isoformat()
 
+    runtime_defaults = _get_cron_runtime_defaults()
     normalized_skills = _normalize_skill_list(skill, skills)
-    normalized_model = str(model).strip() if isinstance(model, str) else None
-    normalized_provider = str(provider).strip() if isinstance(provider, str) else None
-    normalized_base_url = str(base_url).strip().rstrip("/") if isinstance(base_url, str) else None
+    normalized_model = str(model).strip() if isinstance(model, str) and str(model).strip() else runtime_defaults["model"]
+    normalized_provider = str(provider).strip() if isinstance(provider, str) and str(provider).strip() else runtime_defaults["provider"]
+    normalized_base_url = str(base_url).strip().rstrip("/") if isinstance(base_url, str) and str(base_url).strip() else runtime_defaults["base_url"]
     normalized_model = normalized_model or None
     normalized_provider = normalized_provider or None
     normalized_base_url = normalized_base_url or None

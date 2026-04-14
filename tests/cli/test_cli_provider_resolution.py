@@ -180,7 +180,7 @@ def test_runtime_resolution_rebuilds_agent_on_routing_change(monkeypatch):
             "provider": "openai-codex",
             "api_mode": "codex_responses",
             "base_url": "https://same-endpoint.example/v1",
-            "api_key": "same-key",
+            "api_key": "***",
             "source": "env/config",
         }
 
@@ -198,6 +198,36 @@ def test_runtime_resolution_rebuilds_agent_on_routing_change(monkeypatch):
     assert shell.agent is None
     assert shell.provider == "openai-codex"
     assert shell.api_mode == "codex_responses"
+
+
+def test_openai_codex_rejects_explicit_api_key(monkeypatch):
+    from hermes_cli import runtime_provider
+    from hermes_cli.auth import AuthError
+
+    monkeypatch.setattr(
+        runtime_provider,
+        "resolve_codex_runtime_credentials",
+        lambda: {"api_key": "***", "base_url": "https://chatgpt.com/backend-api/codex"},
+    )
+
+    with pytest.raises(AuthError, match="does not support API-key authentication"):
+        runtime_provider.resolve_runtime_provider(
+            requested="openai-codex",
+            explicit_api_key="sk-sho...used",
+        )
+
+
+def test_custom_endpoint_without_api_key_no_longer_hits_openrouter_guard():
+    from hermes_cli import runtime_provider
+
+    runtime = runtime_provider.resolve_runtime_provider(
+        requested="custom",
+        explicit_base_url="http://192.168.0.28:1234",
+    )
+
+    assert runtime["provider"] == "custom"
+    assert runtime["base_url"] == "http://192.168.0.28:1234"
+    assert runtime["api_key"] == "no-key-required"
 
 
 def test_cli_turn_routing_uses_primary_when_disabled(monkeypatch):

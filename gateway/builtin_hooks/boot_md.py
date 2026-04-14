@@ -22,6 +22,8 @@ import threading
 
 logger = logging.getLogger("hooks.boot-md")
 
+from hermes_cli.config import load_config
+from hermes_cli.runtime_provider import resolve_runtime_provider
 from hermes_constants import get_hermes_home
 HERMES_HOME = get_hermes_home()
 BOOT_FILE = HERMES_HOME / "BOOT.md"
@@ -42,13 +44,38 @@ def _build_boot_prompt(content: str) -> str:
     )
 
 
+def _resolve_boot_runtime() -> dict:
+    """Resolve the main runtime before constructing the boot agent.
+
+    AIAgent decides api_mode during __init__ from the constructor kwargs.
+    If we let it start with defaults and only resolve the client later, a
+    codex-configured main provider can end up on /chat/completions with an
+    empty model. Resolve the runtime first so the agent sees a consistent
+    model/provider/base_url/api_mode tuple up front.
+    """
+    config = load_config()
+    model_cfg = config.get("model") if isinstance(config.get("model"), dict) else {}
+    requested_provider = str(model_cfg.get("provider") or "").strip() or None
+    runtime = resolve_runtime_provider(requested=requested_provider)
+    model = str(model_cfg.get("default") or runtime.get("model") or "").strip()
+    if model:
+        runtime["model"] = model
+    return runtime
+
+
 def _run_boot_agent(content: str) -> None:
     """Spawn a one-shot agent session to execute the boot instructions."""
     try:
         from run_agent import AIAgent
 
         prompt = _build_boot_prompt(content)
+        runtime = _resolve_boot_runtime()
         agent = AIAgent(
+            model=str(runtime.get("model") or ""),
+            provider=str(runtime.get("provider") or ""),
+            base_url=str(runtime.get("base_url") or ""),
+            api_mode=str(runtime.get("api_mode") or ""),
+            api_key=str(runtime.get("api_key") or ""),
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,

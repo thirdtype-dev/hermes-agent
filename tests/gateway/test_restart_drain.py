@@ -25,15 +25,56 @@ async def test_restart_command_while_busy_requests_drain_without_interrupt(monke
         source=make_restart_source(),
         message_id="m1",
     )
-    session_key = build_session_key(event.source)
+    event.internal = True
+
+    import time
+
+    session_key = runner._session_key_for_source(event.source)
     running_agent = MagicMock()
+    running_agent.get_activity_summary.return_value = {"seconds_since_activity": 0}
     runner._running_agents[session_key] = running_agent
+    runner._running_agents_ts[session_key] = time.time()
+
+    event.internal = True
 
     result = await runner._handle_message(event)
 
     assert result == "⏳ Draining 1 active agent(s) before restart..."
     running_agent.interrupt.assert_not_called()
     runner.request_restart.assert_called_once_with(detached=True, via_service=False)
+
+
+@pytest.mark.asyncio
+async def test_live_workers_command_while_busy_syncs_without_restart(monkeypatch):
+    runner, _adapter = make_restart_runner()
+    runner.request_restart = MagicMock(return_value=True)
+    event = MessageEvent(
+        text="/live-workers",
+        message_type=MessageType.TEXT,
+        source=make_restart_source(),
+        message_id="m1b",
+    )
+    event.internal = True
+
+    import time
+
+    session_key = runner._session_key_for_source(event.source)
+    running_agent = MagicMock()
+    running_agent.get_activity_summary.return_value = {"seconds_since_activity": 0}
+    runner._running_agents[session_key] = running_agent
+    runner._running_agents_ts[session_key] = time.time()
+
+    live_workers_handle = AsyncMock(return_value=None)
+    monkeypatch.setattr("gateway.builtin_hooks.live_workers.handle", live_workers_handle)
+
+    event.internal = True
+
+    result = await runner._handle_message(event)
+
+    assert result == "🔄 Live workers synced from LIVE_WORKERS.md. Gateway stayed online."
+    running_agent.interrupt.assert_not_called()
+    runner.request_restart.assert_not_called()
+    live_workers_handle.assert_awaited_once_with("gateway:manual", {})
 
 
 @pytest.mark.asyncio
@@ -72,6 +113,8 @@ async def test_draining_rejects_new_session_messages():
         source=make_restart_source("fresh"),
         message_id="m3",
     )
+
+    event.internal = True
 
     result = await runner._handle_message(event)
 

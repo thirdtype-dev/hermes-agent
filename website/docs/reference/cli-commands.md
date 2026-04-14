@@ -101,7 +101,7 @@ Examples:
 ```bash
 hermes
 hermes chat -q "Summarize the latest PRs"
-hermes chat --provider openrouter --model anthropic/claude-sonnet-4.6
+hermes chat --provider openai-codex --model gpt-5.4-mini
 hermes chat --toolsets web,terminal,skills
 hermes chat --quiet -q "Return only JSON"
 hermes chat --worktree -q "Review this repo and open a PR"
@@ -133,7 +133,7 @@ Switch models without leaving a session:
 /model custom:qwen-2.5              # Use model on your custom endpoint
 /model custom                       # Auto-detect model from custom endpoint
 /model custom:local:qwen-2.5        # Use a named custom provider
-/model openrouter:anthropic/claude-sonnet-4  # Switch back to cloud
+/model openai-codex:gpt-5.4-mini  # Switch back to cloud
 ```
 
 Provider and base URL changes are persisted to `config.yaml` automatically. When switching away from a custom endpoint, the stale base URL is cleared to prevent it leaking into other providers.
@@ -205,11 +205,11 @@ Manage credential pools for same-provider key rotation. See [Credential Pools](/
 ```bash
 hermes auth                                              # Interactive wizard
 hermes auth list                                         # Show all pools
-hermes auth list openrouter                              # Show specific provider
-hermes auth add openrouter --api-key sk-or-v1-xxx        # Add API key
+hermes auth list <provider>                              # Show specific provider
+hermes auth add <provider> --api-key <key>        # Add API key
 hermes auth add anthropic --type oauth                   # Add OAuth credential
-hermes auth remove openrouter 2                          # Remove by index
-hermes auth reset openrouter                             # Clear cooldowns
+hermes auth remove <provider> 2                          # Remove by index
+hermes auth reset <provider>                             # Clear cooldowns
 ```
 
 Subcommands: `add`, `list`, `remove`, `reset`. When called with no subcommand, launches the interactive management wizard.
@@ -324,11 +324,11 @@ openai_sdk:       2.24.0
 profile:          default
 hermes_home:      ~/.hermes
 model:            anthropic/claude-opus-4.6
-provider:         openrouter
+provider:         openai-codex
 terminal:         local
 
 api_keys:
-  openrouter           set
+  openai-codex         set
   openai               not set
   anthropic            set
   nous                 not set

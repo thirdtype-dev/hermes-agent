@@ -455,13 +455,22 @@ def _resolve_openrouter_runtime(
         or OPENROUTER_BASE_URL
     ).rstrip("/")
 
-    # Choose API key based on whether the resolved base_url targets OpenRouter.
-    # When hitting OpenRouter, prefer OPENROUTER_API_KEY (issue #289).
-    # When hitting a custom endpoint (e.g. Z.ai, local LLM), prefer
-    # OPENAI_API_KEY so the OpenRouter key doesn't leak to an unrelated
-    # provider (issues #420, #560).
-    _is_openrouter_url = "openrouter.ai" in base_url
-    if _is_openrouter_url:
+    # OpenAI-hosted endpoints should use Hermes auth (Codex OAuth) rather than
+    # raw API-key auth. This includes the Codex gateway endpoint and any direct
+    # api.openai.com endpoint that would otherwise be treated like a generic
+    # custom OpenAI-compatible server.
+    _is_openai_hosted = (
+        "api.openai.com" in base_url
+        or "chatgpt.com/backend-api/codex" in base_url
+    )
+    if _is_openai_hosted:
+        try:
+            from hermes_cli.auth import resolve_codex_runtime_credentials
+            codex_creds = resolve_codex_runtime_credentials()
+            api_key_candidates = [codex_creds.get("api_key", "")]
+        except Exception:
+            api_key_candidates = []
+    elif "openrouter.ai" in base_url:
         api_key_candidates = [
             explicit_api_key,
             os.getenv("OPENROUTER_API_KEY"),
@@ -490,7 +499,10 @@ def _resolve_openrouter_runtime(
     # name instead of silently relabeling to "openrouter" (#2562).
     # Also provide a placeholder API key for local servers that don't require
     # authentication — the OpenAI SDK requires a non-empty api_key string.
-    effective_provider = "custom" if requested_norm == "custom" else "openrouter"
+    if _is_openai_hosted:
+        effective_provider = "openai-codex"
+    else:
+        effective_provider = "custom" if requested_norm == "custom" else "openrouter"
 
     # For custom endpoints, check if a credential pool exists
     if effective_provider == "custom" and base_url:
@@ -500,7 +512,7 @@ def _resolve_openrouter_runtime(
         if pool_result:
             return pool_result
 
-    if effective_provider == "custom" and not api_key and not _is_openrouter_url:
+    if effective_provider == "custom" and not api_key and not _is_openai_hosted:
         api_key = "no-key-required"
 
     return {
@@ -553,15 +565,22 @@ def _resolve_explicit_runtime(
         }
 
     if provider == "openai-codex":
+        if explicit_api_key:
+            raise AuthError(
+                "openai-codex does not support API-key authentication. "
+                "Remove the API key and use Codex OAuth credentials from ~/.codex/auth.json."
+            )
         base_url = explicit_base_url or DEFAULT_CODEX_BASE_URL
-        api_key = explicit_api_key
-        last_refresh = None
+        creds = resolve_codex_runtime_credentials()
+        api_key = creds.get("api_key", "")
+        last_refresh = creds.get("last_refresh")
         if not api_key:
-            creds = resolve_codex_runtime_credentials()
-            api_key = creds.get("api_key", "")
-            last_refresh = creds.get("last_refresh")
-            if not explicit_base_url:
-                base_url = creds.get("base_url", "").rstrip("/") or base_url
+            raise AuthError(
+                "No Codex OAuth credentials found. Authenticate with the Codex CLI or "
+                "refresh ~/.codex/auth.json, then retry."
+            )
+        if not explicit_base_url:
+            base_url = creds.get("base_url", "").rstrip("/") or base_url
         return {
             "provider": "openai-codex",
             "api_mode": "codex_responses",

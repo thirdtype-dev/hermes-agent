@@ -299,14 +299,6 @@ def load_cli_config() -> Dict[str, Any]:
                 "api_key": "",
             },
         },
-        "delegation": {
-            "max_iterations": 45,  # Max tool-calling turns per child agent
-            "default_toolsets": ["terminal", "file", "web"],  # Default toolsets for subagents
-            "model": "",       # Subagent model override (empty = inherit parent model)
-            "provider": "",    # Subagent provider override (empty = inherit parent provider)
-            "base_url": "",    # Direct OpenAI-compatible endpoint for subagents
-            "api_key": "",     # API key for delegation.base_url (falls back to OPENAI_API_KEY)
-        },
     }
     
     # Track whether the config file explicitly set terminal config.

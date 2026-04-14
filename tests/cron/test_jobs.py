@@ -233,6 +233,13 @@ class TestJobCRUD:
         job = create_job(prompt="Test", schedule="30m")
         assert job["deliver"] == "local"
 
+    def test_default_runtime_uses_codex(self, tmp_cron_dir):
+        with patch("cron.jobs.load_config", return_value={}):
+            job = create_job(prompt="Test", schedule="30m")
+        assert job["model"] == "gpt-5.4-mini"
+        assert job["provider"] == "openai-codex"
+        assert job["base_url"] == "https://chatgpt.com/backend-api/codex"
+
 
 class TestUpdateJob:
     def test_update_name(self, tmp_cron_dir):

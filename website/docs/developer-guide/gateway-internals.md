@@ -207,6 +207,11 @@ Gateway hooks are Python modules that respond to lifecycle events:
 
 Hooks are discovered from `gateway/builtin_hooks/` (always active) and `~/.hermes/hooks/` (user-installed). Each hook is a directory with a `HOOK.yaml` manifest and `handler.py`.
 
+Built-in startup hooks currently include:
+
+- `boot-md` — runs `~/.hermes/BOOT.md` on gateway startup
+- `live-workers` — syncs background `AIAgent` workers from `~/.hermes/LIVE_WORKERS.md` on gateway startup; `/live-workers` re-syncs the file later without restarting the gateway
+
 ## Memory Provider Integration
 
 When a memory provider plugin (e.g., Honcho) is enabled:

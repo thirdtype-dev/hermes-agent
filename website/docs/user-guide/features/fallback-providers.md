@@ -25,8 +25,8 @@ Add a `fallback_model` section to `~/.hermes/config.yaml`:
 
 ```yaml
 fallback_model:
-  provider: openrouter
-  model: anthropic/claude-sonnet-4
+  provider: openai-codex
+  model: gpt-5.4-mini
 ```
 
 Both `provider` and `model` are **required**. If either is missing, the fallback is disabled.
@@ -36,7 +36,6 @@ Both `provider` and `model` are **required**. If either is missing, the fallback
 | Provider | Value | Requirements |
 |----------|-------|-------------|
 | AI Gateway | `ai-gateway` | `AI_GATEWAY_API_KEY` |
-| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
 | Nous Portal | `nous` | `hermes auth` (OAuth) |
 | OpenAI Codex | `openai-codex` | `hermes model` (ChatGPT OAuth) |
 | GitHub Copilot | `copilot` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` |
@@ -100,15 +99,15 @@ model:
   default: claude-sonnet-4-6
 
 fallback_model:
-  provider: openrouter
-  model: anthropic/claude-sonnet-4
+  provider: openai-codex
+  model: gpt-5.4-mini
 ```
 
-**Nous Portal as fallback for OpenRouter:**
+**Nous Portal as fallback for OpenAI Codex:**
 ```yaml
 model:
-  provider: openrouter
-  default: anthropic/claude-opus-4
+  provider: openai-codex
+  default: gpt-5.4-mini
 
 fallback_model:
   provider: nous
@@ -190,7 +189,7 @@ Each task can be configured independently in `config.yaml`:
 ```yaml
 auxiliary:
   vision:
-    provider: "auto"              # auto | openrouter | nous | codex | main | anthropic
+    provider: "auto"              # auto | nous | codex | main | anthropic
     model: ""                     # e.g. "openai/gpt-4o"
     base_url: ""                  # direct endpoint (takes precedence over provider)
     api_key: ""                   # API key for base_url
@@ -234,8 +233,8 @@ And the fallback model uses:
 
 ```yaml
 fallback_model:
-  provider: openrouter
-  model: anthropic/claude-sonnet-4
+  provider: openai-codex
+  model: gpt-5.4-mini
   # base_url: http://localhost:8000/v1               # Optional custom endpoint
 ```
 
@@ -248,7 +247,6 @@ These options apply to `auxiliary:`, `compression:`, and `fallback_model:` confi
 | Provider | Description | Requirements |
 |----------|-------------|-------------|
 | `"auto"` | Try providers in order until one works (default) | At least one provider configured |
-| `"openrouter"` | Force OpenRouter | `OPENROUTER_API_KEY` |
 | `"nous"` | Force Nous Portal | `hermes auth` |
 | `"codex"` | Force Codex OAuth | `hermes model` → Codex |
 | `"main"` | Use whatever provider the main agent uses (auxiliary tasks only) | Active main provider configured |
@@ -295,7 +293,7 @@ Subagents spawned by `delegate_task` do **not** use the primary fallback model. 
 
 ```yaml
 delegation:
-  provider: "openrouter"                      # override provider for all subagents
+  provider: "anthropic"                      # override provider for all subagents
   model: "google/gemini-3-flash-preview"      # override model
   # base_url: "http://localhost:1234/v1"      # or use a direct endpoint
   # api_key: "local-key"
@@ -314,7 +312,7 @@ cronjob(
     action="create",
     schedule="every 2h",
     prompt="Check server status",
-    provider="openrouter",
+    provider="anthropic",
     model="google/gemini-3-flash-preview"
 )
 ```

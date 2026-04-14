@@ -35,6 +35,7 @@ import sys
 import tempfile
 import time
 import threading
+import weakref
 from types import SimpleNamespace
 import uuid
 from typing import List, Dict, Any, Optional
@@ -107,6 +108,121 @@ from agent.trajectory import (
     save_trajectory as _save_trajectory_to_file,
 )
 from utils import atomic_json_write, env_var_enabled
+
+
+_MODEL_SLOT_LOCK = threading.RLock()
+_MODEL_SLOT_OWNERS: dict[str, dict[str, Any]] = {}
+
+
+def _normalize_model_slot_key(model: str | None) -> str:
+    return (model or "").strip().lower()
+
+
+def _load_model_slot_policy() -> dict[str, bool]:
+    """Read model-slot policy from config.yaml with safe defaults.
+
+    The policy is intentionally tiny: model slots are enabled by default and
+    conflicts are preempted unless explicitly disabled in config.
+    """
+    try:
+        from hermes_cli.config import load_config as _load_agent_config
+
+        cfg = _load_agent_config() or {}
+        slots = cfg.get("model_slots", {}) if isinstance(cfg, dict) else {}
+        if not isinstance(slots, dict):
+            slots = {}
+        return {
+            "enabled": bool(slots.get("enabled", True)),
+            "preempt_on_conflict": bool(slots.get("preempt_on_conflict", True)),
+        }
+    except Exception:
+        return {"enabled": True, "preempt_on_conflict": True}
+
+
+def _claim_model_slot(agent: Any, model_slot_key: str | None) -> dict[str, Any] | None:
+    """Register the active owner for a model slot and preempt prior owners.
+
+    The current slot policy is model-wide. Callers that should not participate
+    in slot enforcement (e.g. internal helper agents) must pass a falsey slot
+    key or disable slot reservation at construction time.
+    """
+    slot_key = _normalize_model_slot_key(model_slot_key)
+    if not slot_key:
+        return None
+
+    policy = _load_model_slot_policy()
+    if not policy.get("enabled", True):
+        return None
+
+    previous = None
+    with _MODEL_SLOT_LOCK:
+        current = _MODEL_SLOT_OWNERS.get(slot_key)
+        if current:
+            current_agent = current["ref"]()
+            if current_agent is agent:
+                current["session_id"] = getattr(agent, "session_id", None)
+                current["model"] = getattr(agent, "model", None)
+                current["provider"] = getattr(agent, "provider", None)
+                return None
+            if current_agent is None:
+                _MODEL_SLOT_OWNERS.pop(slot_key, None)
+            else:
+                previous = current.copy()
+
+        _MODEL_SLOT_OWNERS[slot_key] = {
+            "ref": weakref.ref(agent),
+            "owner_id": id(agent),
+            "session_id": getattr(agent, "session_id", None),
+            "model": getattr(agent, "model", None),
+            "provider": getattr(agent, "provider", None),
+        }
+        try:
+            finalizer = getattr(agent, "_model_slot_finalizer", None)
+            if not finalizer or not getattr(finalizer, "alive", False):
+                agent._model_slot_finalizer = weakref.finalize(
+                    agent,
+                    _finalize_model_slot,
+                    slot_key,
+                    id(agent),
+                )
+        except Exception:
+            pass
+
+    if previous and policy.get("preempt_on_conflict", True):
+        prev_agent = previous.get("ref")() if previous.get("ref") else None
+        if prev_agent is not None:
+            reason = (
+                f"Model slot '{slot_key}' was preempted by another active agent."
+            )
+            try:
+                prev_agent.interrupt(reason)
+            except Exception:
+                pass
+            try:
+                prev_agent.close()
+            except Exception:
+                pass
+
+    return previous
+
+
+def _release_model_slot(agent: Any) -> None:
+    slot_key = _normalize_model_slot_key(getattr(agent, "_model_slot_key", ""))
+    if not slot_key:
+        return
+
+    with _MODEL_SLOT_LOCK:
+        current = _MODEL_SLOT_OWNERS.get(slot_key)
+        if current and current.get("ref") and current["ref"]() is agent:
+            _MODEL_SLOT_OWNERS.pop(slot_key, None)
+
+
+def _finalize_model_slot(slot_key: str, owner_id: int) -> None:
+    """Finalizer callback used when an agent is garbage-collected without close()."""
+    with _MODEL_SLOT_LOCK:
+        current = _MODEL_SLOT_OWNERS.get(slot_key)
+        if current and current.get("owner_id") == owner_id:
+            _MODEL_SLOT_OWNERS.pop(slot_key, None)
 
 
 
@@ -604,6 +720,7 @@ class AIAgent:
         checkpoint_max_snapshots: int = 50,
         pass_session_id: bool = False,
         persist_session: bool = True,
+        reserve_model_slot: bool | None = None,
     ):
         """
         Initialize the AI Agent.
@@ -658,6 +775,9 @@ class AIAgent:
         self.ephemeral_system_prompt = ephemeral_system_prompt
         self.platform = platform  # "cli", "telegram", "discord", "whatsapp", etc.
         self._user_id = user_id  # Platform user identifier (gateway sessions)
+        self.reserve_model_slot = bool(platform) if reserve_model_slot is None else bool(reserve_model_slot)
+        self._model_slot_key = ""
+        self._model_slot_claimed = False
         # Pluggable print function — CLI replaces this with _cprint so that
         # raw ANSI status lines are routed through prompt_toolkit's renderer
         # instead of going directly to stdout where patch_stdout's StdoutProxy
@@ -953,6 +1073,18 @@ class AIAgent:
                         },
                     }
             
+            # Codex Responses calls can sit on the server for a while before
+            # the first token arrives. Give them a much longer read timeout so
+            # cron / long-prompt follow-up jobs do not die on the SDK default.
+            if self.api_mode == "codex_responses" or self.provider == "openai-codex":
+                import httpx as _httpx
+
+                codex_timeout = float(os.getenv("HERMES_CODEX_REQUEST_TIMEOUT_SECONDS", "900"))
+                client_kwargs["timeout"] = _httpx.Timeout(
+                    timeout=codex_timeout,
+                    connect=30.0,
+                )
+
             self._client_kwargs = client_kwargs  # stored for rebuilding after interrupt
 
             # Enable fine-grained tool streaming for Claude on OpenRouter.
@@ -1598,6 +1730,17 @@ class AIAgent:
                 "api_key": effective_key,
                 "base_url": effective_base,
             }
+            # Codex Responses calls can sit on the server for a while before
+            # the first token arrives. Give them a much longer read timeout so
+            # cron / long-prompt follow-up jobs do not die on the SDK default.
+            if self.api_mode == "codex_responses" or self.provider == "openai-codex":
+                import httpx as _httpx
+
+                codex_timeout = float(os.getenv("HERMES_CODEX_REQUEST_TIMEOUT_SECONDS", "900"))
+                self._client_kwargs["timeout"] = _httpx.Timeout(
+                    timeout=codex_timeout,
+                    connect=30.0,
+                )
             self.client = self._create_openai_client(
                 dict(self._client_kwargs),
                 reason="switch_model",
@@ -2202,6 +2345,7 @@ class AIAgent:
                         quiet_mode=True,
                         platform=self.platform,
                         provider=self.provider,
+                        reserve_model_slot=False,
                     )
                     review_agent._memory_store = self._memory_store
                     review_agent._memory_enabled = self._memory_enabled
@@ -2923,7 +3067,7 @@ class AIAgent:
         # Signal all tools to abort any in-flight operations immediately.
         # Scope the interrupt to this agent's execution thread so other
         # agents running in the same process (gateway) are not affected.
-        _set_interrupt(True, self._execution_thread_id)
+        _set_interrupt(True, getattr(self, "_execution_thread_id", None))
         # Propagate interrupt to any running child agents (subagent delegation)
         with self._active_children_lock:
             children_copy = list(self._active_children)
@@ -2939,7 +3083,7 @@ class AIAgent:
         """Clear any pending interrupt request and the per-thread tool interrupt signal."""
         self._interrupt_requested = False
         self._interrupt_message = None
-        _set_interrupt(False, self._execution_thread_id)
+        _set_interrupt(False, getattr(self, "_execution_thread_id", None))
 
     def _touch_activity(self, desc: str) -> None:
         """Update the last-activity timestamp and description (thread-safe)."""
@@ -3028,6 +3172,22 @@ class AIAgent:
         independently guarded so a failure in one does not prevent the rest.
         """
         task_id = getattr(self, "session_id", None) or ""
+
+        # Release model-slot ownership before closing resources so a preempted
+        # replacement can start immediately.
+        if getattr(self, "_model_slot_claimed", False):
+            try:
+                _release_model_slot(self)
+            except Exception:
+                pass
+            self._model_slot_claimed = False
+            self._model_slot_key = ""
+            finalizer = getattr(self, "_model_slot_finalizer", None)
+            if finalizer is not None:
+                try:
+                    finalizer.detach()
+                except Exception:
+                    pass
 
         # 1. Kill background processes for this task
         try:
@@ -7783,6 +7943,14 @@ class AIAgent:
         # runtime so this turn gets a fresh attempt with the preferred model.
         # No-op when _fallback_activated is False (gateway, first turn, etc.).
         self._restore_primary_runtime()
+
+        # Reserve the model slot for this active agent session.  The slot is
+        # model-wide: if another live agent is already using the same model,
+        # it is interrupted and closed before this turn proceeds.
+        self._model_slot_key = _normalize_model_slot_key(self.model) if self.reserve_model_slot else ""
+        if self._model_slot_key:
+            _claim_model_slot(self, self._model_slot_key)
+            self._model_slot_claimed = True
 
         # Sanitize surrogate characters from user input.  Clipboard paste from
         # rich-text editors (Google Docs, Word, etc.) can inject lone surrogates

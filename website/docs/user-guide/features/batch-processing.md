@@ -57,7 +57,7 @@ Entries can optionally include:
 | `--run_name` | (required) | Name for this run (used for output dir and checkpointing) |
 | `--distribution` | `"default"` | Toolset distribution to sample from |
 | `--model` | `claude-sonnet-4.6` | Model to use |
-| `--base_url` | `https://openrouter.ai/api/v1` | API base URL |
+| `--base_url` | `https://api.openai.com/v1` | API base URL |
 | `--api_key` | (env var) | API key for model |
 | `--max_turns` | `10` | Maximum tool-calling iterations per prompt |
 | `--num_workers` | `4` | Parallel worker processes |

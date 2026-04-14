@@ -88,7 +88,7 @@ Hermes contains logic to avoid leaking the wrong API key to a custom endpoint wh
 
 Each provider's API key is scoped to its own base URL:
 
-- `OPENROUTER_API_KEY` is only sent to `openrouter.ai` endpoints
+- Provider-specific API keys are only sent to matching endpoints
 - `AI_GATEWAY_API_KEY` is only sent to `ai-gateway.vercel.sh` endpoints
 - `OPENAI_API_KEY` is used for custom endpoints and as a fallback
 

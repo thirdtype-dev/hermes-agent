@@ -102,6 +102,7 @@ class TestResolveCommand:
         assert resolve_command("gateway").name == "platforms"
         assert resolve_command("set-home").name == "sethome"
         assert resolve_command("reload_mcp").name == "reload-mcp"
+        assert resolve_command("reload_workers").name == "live-workers"
 
     def test_leading_slash_stripped(self):
         assert resolve_command("/help").name == "help"
@@ -175,6 +176,10 @@ class TestGatewayKnownCommands:
     def test_bg_alias_in_gateway(self):
         assert "bg" in GATEWAY_KNOWN_COMMANDS
         assert "background" in GATEWAY_KNOWN_COMMANDS
+
+    def test_live_workers_in_gateway(self):
+        assert "live-workers" in GATEWAY_KNOWN_COMMANDS
+        assert "reload_workers" in GATEWAY_KNOWN_COMMANDS
 
     def test_is_frozenset(self):
         assert isinstance(GATEWAY_KNOWN_COMMANDS, frozenset)

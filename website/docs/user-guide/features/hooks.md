@@ -104,8 +104,32 @@ The gateway ships with a built-in `boot-md` hook that looks for `~/.hermes/BOOT.
 
 The agent runs these instructions in a background thread so it doesn't block gateway startup. If nothing needs attention, the agent replies with `[SILENT]` and no message is delivered.
 
+#### Live Workers (LIVE_WORKERS.md) — Built-in
+
+Use `~/.hermes/LIVE_WORKERS.md` to define file-backed background workers. The hook loads on gateway startup, and `/live-workers` re-syncs it later without restarting the gateway.
+
+Create `~/.hermes/LIVE_WORKERS.md` with one or more worker sections:
+
+```markdown
+## Worker: planner
+model=gpt-5.4-mini
+provider=openai-codex
+max_iterations=40
+
+Keep an eye on live beads and report blockers.
+
+## Worker: executor-gemma
+model=google/gemma-4-e4b
+provider=custom:lm-studio-gemma
+max_iterations=20
+
+Triage the next smallest implementation step and keep it moving.
+```
+
+Each `## Worker: ...` header defines the worker role/name. Optional `key=value` lines immediately below the header set execution metadata such as `model`, `provider`, and `max_iterations`. The first blank line starts the worker prompt. On re-sync, new or changed workers are started first and then replaced or removed workers are interrupted, so the gateway stays online while the worker set changes. If the file is missing, the hook silently skips.
+
 :::tip
-No BOOT.md? The hook silently skips — zero overhead. Create the file whenever you need startup automation, delete it when you don't.
+No BOOT.md or LIVE_WORKERS.md? The startup hooks silently skip — zero overhead. Create the file whenever you need startup automation, delete it when you don't.
 :::
 
 #### Telegram Alert on Long Tasks

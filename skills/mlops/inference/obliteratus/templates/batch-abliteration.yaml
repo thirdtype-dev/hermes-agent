@@ -24,7 +24,6 @@ models:
   medium:
     - "meta-llama/Llama-3.1-8B-Instruct"
     - "mistralai/Mistral-7B-Instruct-v0.3"
-    - "google/gemma-2-9b-it"
     - "Qwen/Qwen2.5-7B-Instruct"
 
   # Large (24 GB VRAM, 4-bit quantization)

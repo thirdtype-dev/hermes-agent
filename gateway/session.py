@@ -27,6 +27,32 @@ def _now() -> datetime:
     return datetime.now()
 
 
+def _parse_datetime(value: Any) -> datetime:
+    """Parse a persisted datetime value.
+
+    Supports legacy representations stored by older gateway versions:
+    - ISO-8601 strings (current format)
+    - POSIX timestamps as int/float
+    - numeric strings containing a POSIX timestamp
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value)
+
+    text = str(value).strip()
+    if not text:
+        raise ValueError("empty datetime value")
+
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        try:
+            return datetime.fromtimestamp(float(text))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid datetime value: {value!r}") from exc
+
+
 # ---------------------------------------------------------------------------
 # PII redaction helpers
 # ---------------------------------------------------------------------------
@@ -413,8 +439,8 @@ class SessionEntry:
         return cls(
             session_key=data["session_key"],
             session_id=data["session_id"],
-            created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"]),
+            created_at=_parse_datetime(data["created_at"]),
+            updated_at=_parse_datetime(data["updated_at"]),
             origin=origin,
             display_name=data.get("display_name"),
             platform=platform,

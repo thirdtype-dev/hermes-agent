@@ -16,11 +16,10 @@ Quick answers and fixes for the most common questions and issues.
 
 Hermes Agent works with any OpenAI-compatible API. Supported providers include:
 
-- **[OpenRouter](https://openrouter.ai/)** — access hundreds of models through one API key (recommended for flexibility)
 - **Nous Portal** — Nous Research's own inference endpoint
 - **OpenAI** — GPT-4o, o1, o3, etc.
-- **Anthropic** — Claude models (via OpenRouter or compatible proxy)
-- **Google** — Gemini models (via OpenRouter or compatible proxy)
+- **Anthropic** — Claude models (via a compatible proxy)
+- **Google** — Gemini models (via a compatible proxy)
 - **z.ai / ZhipuAI** — GLM models
 - **Kimi / Moonshot AI** — Kimi models
 - **MiniMax** — global and China endpoints
@@ -110,7 +109,7 @@ Yes. Import the `AIAgent` class and use Hermes programmatically:
 ```python
 from run_agent import AIAgent
 
-agent = AIAgent(model="openrouter/nous/hermes-3-llama-3.1-70b")
+agent = AIAgent(model="gpt-5.4-mini")
 response = agent.chat("Explain quantum computing briefly")
 ```
 
@@ -217,10 +216,10 @@ Make sure the key matches the provider. An OpenAI key won't work with OpenRouter
 hermes model
 
 # Set a valid model
-hermes config set HERMES_MODEL openrouter/nous/hermes-3-llama-3.1-70b
+hermes config set HERMES_MODEL gpt-5.4-mini
 
 # Or specify per-session
-hermes chat --model openrouter/meta-llama/llama-3.1-70b-instruct
+hermes chat --model gpt-5.4-mini
 ```
 
 #### Rate limiting (429 errors)
@@ -245,7 +244,7 @@ hermes chat --model openrouter/meta-llama/llama-3.1-70b-instruct
 hermes chat
 
 # Use a model with a larger context window
-hermes chat --model openrouter/google/gemini-3-flash-preview
+hermes chat --model gpt-5.4-mini
 ```
 
 If this happens on the first long conversation, Hermes may have the wrong context length for your model. Check what it detected:
@@ -437,7 +436,7 @@ You can verify the plist has the correct PATH:
 **Cause:** Large model, distant API server, or heavy system prompt with many tools.
 
 **Solution:**
-- Try a faster/smaller model: `hermes chat --model openrouter/meta-llama/llama-3.1-8b-instruct`
+- Try a faster/smaller model: `hermes chat --model gpt-5.4-mini`
 - Reduce active toolsets: `hermes chat -t "terminal"`
 - Check your network latency to the provider
 - For local models, ensure you have enough GPU VRAM
@@ -592,7 +591,7 @@ There is no hard limit. Each profile is just a directory under `~/.hermes/profil
 ```yaml
 delegation:
   model: "google/gemini-3-flash-preview"   # subagents use this model
-  provider: "openrouter"                    # provider for subagents
+  provider: "openai-codex"                    # provider for subagents
 ```
 
 Now when you tell Hermes "write me a Twitter thread about X" and it spawns a `delegate_task` subagent, that subagent runs on Gemini instead of your main model. Your primary conversation stays on GPT-5.4.

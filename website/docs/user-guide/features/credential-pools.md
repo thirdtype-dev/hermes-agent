@@ -34,8 +34,8 @@ Your request
 If you already have an API key set in `.env`, Hermes auto-discovers it as a 1-key pool. To benefit from pooling, add more keys:
 
 ```bash
-# Add a second OpenRouter key
-hermes auth add openrouter --api-key sk-or-v1-your-second-key
+# Add a second API key for the same provider
+hermes auth add anthropic --api-key sk-ant...-key
 
 # Add a second Anthropic key
 hermes auth add anthropic --type api-key --api-key sk-ant-api03-your-second-key
@@ -53,7 +53,7 @@ hermes auth list
 
 Output:
 ```
-openrouter (2 credentials):
+anthropic (2 credentials):
   #1  OPENROUTER_API_KEY   api_key env:OPENROUTER_API_KEY ←
   #2  backup-key           api_key manual
 
@@ -112,7 +112,7 @@ Configure via `hermes auth` → "Set rotation strategy" or in `config.yaml`:
 
 ```yaml
 credential_pool_strategies:
-  openrouter: round_robin
+  anthropic: round_robin
   anthropic: least_used
 ```
 
@@ -158,7 +158,7 @@ Custom endpoint pools are stored in `auth.json` under `credential_pool` with a `
 ```json
 {
   "credential_pool": {
-    "openrouter": [...],
+    "anthropic": [...],
     "custom:together.ai": [...]
   }
 }
@@ -212,7 +212,7 @@ Pool state is stored in `~/.hermes/auth.json` under the `credential_pool` key:
 {
   "version": 1,
   "credential_pool": {
-    "openrouter": [
+    "anthropic": [
       {
         "id": "abc123",
         "label": "OPENROUTER_API_KEY",
@@ -232,6 +232,6 @@ Strategies are stored in `config.yaml` (not `auth.json`):
 
 ```yaml
 credential_pool_strategies:
-  openrouter: round_robin
+  anthropic: round_robin
   anthropic: least_used
 ```

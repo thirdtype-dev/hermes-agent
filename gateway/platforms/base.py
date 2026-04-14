@@ -1519,7 +1519,7 @@ class BasePlatformAdapter(ABC):
                     response = await self._message_handler(event)
                     if response:
                         await self._send_with_retry(
-                            chat_id=event.source.chat_id,
+                            chat_id=source_chat_id,
                             content=response,
                             reply_to=event.message_id,
                             metadata=_thread_meta,
@@ -1609,10 +1609,13 @@ class BasePlatformAdapter(ABC):
         # Fall back to a new Event only if the entry was removed externally.
         interrupt_event = self._active_sessions.get(session_key) or asyncio.Event()
         self._active_sessions[session_key] = interrupt_event
-        
+
+        source_chat_id = event.source.chat_id
+        source_thread_id = event.source.thread_id
+
         # Start continuous typing indicator (refreshes every 2 seconds)
-        _thread_metadata = {"thread_id": event.source.thread_id} if event.source.thread_id else None
-        typing_task = asyncio.create_task(self._keep_typing(event.source.chat_id, metadata=_thread_metadata))
+        _thread_metadata = {"thread_id": source_thread_id} if source_thread_id else None
+        typing_task = asyncio.create_task(self._keep_typing(source_chat_id, metadata=_thread_metadata))
         
         try:
             await self._run_processing_hook("on_processing_start", event)
@@ -1670,7 +1673,7 @@ class BasePlatformAdapter(ABC):
                 if _tts_path and Path(_tts_path).exists():
                     try:
                         await self.play_tts(
-                            chat_id=event.source.chat_id,
+                            chat_id=source_chat_id,
                             audio_path=_tts_path,
                             metadata=_thread_metadata,
                         )
@@ -1710,14 +1713,14 @@ class BasePlatformAdapter(ABC):
                         # Route animated GIFs through send_animation for proper playback
                         if self._is_animation_url(image_url):
                             img_result = await self.send_animation(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 animation_url=image_url,
                                 caption=alt_text if alt_text else None,
                                 metadata=_thread_metadata,
                             )
                         else:
                             img_result = await self.send_image(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 image_url=image_url,
                                 caption=alt_text if alt_text else None,
                                 metadata=_thread_metadata,
@@ -1739,25 +1742,25 @@ class BasePlatformAdapter(ABC):
                         ext = Path(media_path).suffix.lower()
                         if ext in _AUDIO_EXTS:
                             media_result = await self.send_voice(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 audio_path=media_path,
                                 metadata=_thread_metadata,
                             )
                         elif ext in _VIDEO_EXTS:
                             media_result = await self.send_video(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 video_path=media_path,
                                 metadata=_thread_metadata,
                             )
                         elif ext in _IMAGE_EXTS:
                             media_result = await self.send_image_file(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 image_path=media_path,
                                 metadata=_thread_metadata,
                             )
                         else:
                             media_result = await self.send_document(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 file_path=media_path,
                                 metadata=_thread_metadata,
                             )
@@ -1775,19 +1778,19 @@ class BasePlatformAdapter(ABC):
                         ext = Path(file_path).suffix.lower()
                         if ext in _IMAGE_EXTS:
                             await self.send_image_file(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 image_path=file_path,
                                 metadata=_thread_metadata,
                             )
                         elif ext in _VIDEO_EXTS:
                             await self.send_video(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 video_path=file_path,
                                 metadata=_thread_metadata,
                             )
                         else:
                             await self.send_document(
-                                chat_id=event.source.chat_id,
+                                chat_id=source_chat_id,
                                 file_path=file_path,
                                 metadata=_thread_metadata,
                             )

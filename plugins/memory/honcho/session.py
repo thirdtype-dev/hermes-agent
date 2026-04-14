@@ -981,8 +981,10 @@ class HonchoSessionManager:
 
         session = self._cache.get(session_key)
         if not session:
-            logger.warning("No session cached for '%s', skipping conclusion", session_key)
-            return False
+            # Tool calls can arrive on a fresh plugin instance or after cache
+            # eviction. Recreate the session instead of dropping the conclusion.
+            logger.warning("No session cached for '%s', recreating before conclusion", session_key)
+            session = self.get_or_create(session_key)
 
         try:
             if self._ai_observe_others:

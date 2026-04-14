@@ -2,7 +2,6 @@
   "database": "dolt",
   "backend": "dolt",
   "dolt_mode": "server",
-  "dolt_server_port": 3307,
-  "dolt_database": "hermes_agent",
-  "project_id": "3e1627f3-ae08-4da2-9b75-3905be6ce11f"
+  "dolt_database": "beads_local_work",
+  "project_id": "8f8fce86-ba9c-4082-b4d5-8251833c0058"
 }

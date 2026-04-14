@@ -38,17 +38,17 @@ protected_turns:
   # This ensures the model's final actions and conclusions are preserved
   last_n_turns: 4
 
-# LLM settings for generating summaries (OpenRouter only)
+# LLM settings for generating summaries
 summarization:
   # Model to use for summarization (should be fast and cheap)
-  # Using OpenRouter model path format
-  model: "google/gemini-3-flash-preview"
+  # Using a direct OpenAI model name
+  model: "gpt-5.4-mini"
   
-  # OpenRouter API settings
-  base_url: "https://openrouter.ai/api/v1"
+  # OpenAI API settings
+  base_url: "https://api.openai.com/v1"
   
-  # Environment variable containing OpenRouter API key
-  api_key_env: "OPENROUTER_API_KEY"
+  # Environment variable containing OpenAI API key
+  api_key_env: "OPENAI_API_KEY"
   
   # Temperature for summarization (lower = more deterministic)
   temperature: 0.3

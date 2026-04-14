@@ -153,7 +153,6 @@ def _discover_tools():
         "tools.session_search_tool",
         "tools.clarify_tool",
         "tools.code_execution_tool",
-        "tools.delegate_tool",
         "tools.process_registry",
         "tools.send_message_tool",
         # "tools.honcho_tools",  # Removed — Honcho is now a memory provider plugin
