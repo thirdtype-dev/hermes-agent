@@ -5155,10 +5155,8 @@ class AIAgent:
 
     def _has_stream_consumers(self) -> bool:
         """Return True if any streaming consumer is registered."""
-        return (
-            self.stream_delta_callback is not None
-            or getattr(self, "_stream_callback", None) is not None
-        )
+        stream_callback = getattr(self, "__dict__", {}).get("_stream_callback")
+        return self.stream_delta_callback is not None or stream_callback is not None
 
     def _interruptible_streaming_api_call(
         self, api_kwargs: dict, *, on_first_delta: callable = None
@@ -6622,7 +6620,9 @@ class AIAgent:
             # (gateway, batch, quiet) still get reasoning.
             # Any reasoning that wasn't shown during streaming is caught by the
             # CLI post-response display fallback (cli.py _reasoning_shown_this_turn).
-            if not self.stream_delta_callback:
+            stream_delta_callback = getattr(self, "stream_delta_callback", None)
+            stream_callback = getattr(self, "__dict__", {}).get("_stream_callback")
+            if stream_delta_callback is None and stream_callback is None:
                 try:
                     self.reasoning_callback(reasoning_text)
                 except Exception:

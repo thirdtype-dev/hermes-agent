@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 from tools.delegate_tool import (
     DELEGATE_BLOCKED_TOOLS,
@@ -160,6 +160,35 @@ class TestDelegateTask(unittest.TestCase):
         self.assertEqual(result["results"][0]["summary"], "Result A")
         self.assertEqual(result["results"][1]["summary"], "Result B")
         self.assertIn("total_duration_seconds", result)
+
+    @patch("tools.delegate_tool._build_child_progress_callback")
+    @patch("run_agent.AIAgent")
+    def test_batch_mode_passes_task_count_to_progress_callback(self, MockAgent, mock_build_progress):
+        """Batch delegation should forward the total task count to progress callbacks."""
+        child = MagicMock()
+        child.run_conversation.return_value = {
+            "final_response": "done",
+            "completed": True,
+            "api_calls": 1,
+            "duration_seconds": 0.1,
+        }
+        MockAgent.return_value = child
+        mock_build_progress.return_value = None
+
+        parent = _make_mock_parent()
+        tasks = [
+            {"goal": "Research topic A"},
+            {"goal": "Research topic B"},
+        ]
+
+        delegate_task(tasks=tasks, parent_agent=parent)
+
+        mock_build_progress.assert_has_calls(
+            [
+                call(0, parent, task_count=2),
+                call(1, parent, task_count=2),
+            ]
+        )
 
     @patch("tools.delegate_tool._run_single_child")
     def test_batch_capped_at_3(self, mock_run):

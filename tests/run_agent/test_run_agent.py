@@ -998,6 +998,18 @@ class TestBuildAssistantMessage:
         result = agent._build_assistant_message(msg, "stop")
         assert result["reasoning"] == "thinking"
 
+    def test_stream_callback_suppresses_reasoning_callback(self, agent):
+        msg = _mock_assistant_msg(content="answer", reasoning="thinking")
+        agent.stream_delta_callback = None
+        agent._stream_callback = lambda _: None
+        reasoning_callback = MagicMock()
+        agent.reasoning_callback = reasoning_callback
+
+        result = agent._build_assistant_message(msg, "stop")
+
+        assert result["reasoning"] == "thinking"
+        reasoning_callback.assert_not_called()
+
     def test_with_tool_calls(self, agent):
         tc = _mock_tool_call(name="web_search", arguments='{"q":"test"}', call_id="c1")
         msg = _mock_assistant_msg(content="", tool_calls=[tc])

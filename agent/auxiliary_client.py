@@ -137,10 +137,19 @@ _NOUS_FREE_TIER_VISION_MODEL = "xiaomi/mimo-v2-omni"
 _NOUS_FREE_TIER_AUX_MODEL = "xiaomi/mimo-v2-pro"
 _NOUS_DEFAULT_BASE_URL = "https://inference-api.nousresearch.com/v1"
 _ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
-_AUTH_JSON_PATH = get_hermes_home() / "auth.json"
+
+
+def _auth_json_path() -> Path:
+    """Return the current Hermes auth store path.
+
+    Resolve lazily so tests and subprocesses that patch HERMES_HOME see the
+    correct profile-specific auth.json instead of a path captured at import
+    time.
+    """
+    return get_hermes_home() / "auth.json"
 
 # Codex fallback: uses the Responses API (the only endpoint the Codex
-# OAuth token can access) with a fast model for auxiliary tasks.
+
 # ChatGPT-backed Codex accounts currently reject gpt-5.3-codex for these
 # auxiliary flows, while gpt-5.2-codex remains broadly available and supports
 # vision via Responses.
@@ -610,9 +619,10 @@ def _read_nous_auth() -> Optional[dict]:
         }
 
     try:
-        if not _AUTH_JSON_PATH.is_file():
+        auth_path = _auth_json_path()
+        if not auth_path.is_file():
             return None
-        data = json.loads(_AUTH_JSON_PATH.read_text())
+        data = json.loads(auth_path.read_text())
         if data.get("active_provider") != "nous":
             return None
         provider = data.get("providers", {}).get("nous", {})
@@ -644,10 +654,29 @@ def _read_codex_access_token() -> Optional[str]:
     fallback-to-Codex working when the pool state is stale but the stored OAuth
     token is still valid.
     """
-    pool_present, entry = _select_pool_entry("openai-codex")
-    if pool_present:
+    def _is_valid_token(token: str) -> bool:
+        if not isinstance(token, str) or not token.strip():
+            return False
+        # Check JWT expiry — expired tokens block the auto chain and
+        # prevent fallback to working providers (e.g. Anthropic).
+        try:
+            import base64
+            payload = token.split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(payload))
+            exp = claims.get("exp", 0)
+            if exp and time.time() > exp:
+                logger.debug("Codex access token expired (exp=%s), skipping", exp)
+                return False
+        except Exception:
+            pass  # Non-JWT token or decode error — use as-is
+        return True
+
+    pool = load_pool("openai-codex")
+    if pool:
+        entry = pool.peek()
         token = _pool_runtime_api_key(entry)
-        if token:
+        if _is_valid_token(token):
             return token
 
     try:
@@ -655,22 +684,8 @@ def _read_codex_access_token() -> Optional[str]:
         data = _read_codex_tokens()
         tokens = data.get("tokens", {})
         access_token = tokens.get("access_token")
-        if not isinstance(access_token, str) or not access_token.strip():
+        if not _is_valid_token(access_token):
             return None
-
-        # Check JWT expiry — expired tokens block the auto chain and
-        # prevent fallback to working providers (e.g. Anthropic).
-        try:
-            import base64
-            payload = access_token.split(".")[1]
-            payload += "=" * (-len(payload) % 4)
-            claims = json.loads(base64.urlsafe_b64decode(payload))
-            exp = claims.get("exp", 0)
-            if exp and time.time() > exp:
-                logger.debug("Codex access token expired (exp=%s), skipping", exp)
-                return None
-        except Exception:
-            pass  # Non-JWT token or decode error — use as-is
 
         return access_token.strip()
     except Exception as exc:
@@ -1166,7 +1181,8 @@ def _resolve_auto(main_runtime: Optional[Dict[str, Any]] = None) -> Tuple[Option
     main_model = runtime_model or _read_main_model()
     if (main_provider and main_model
             and main_provider not in _AGGREGATOR_PROVIDERS
-            and main_provider not in ("auto", "")):
+            and main_provider not in ("auto", "")
+            and (runtime_provider or main_provider not in ("openai-codex", "codex"))):
         resolved_provider = main_provider
         explicit_base_url = None
         explicit_api_key = None
@@ -1761,8 +1777,13 @@ def resolve_vision_provider_client(
                     return _finalize(main_provider, sync_client, default_model)
             else:
                 # Exotic provider (DeepSeek, Alibaba, Xiaomi, named custom, etc.)
-                # Use provider-specific vision model if available, otherwise main model.
-                vision_model = _PROVIDER_VISION_MODELS.get(main_provider, main_model)
+                # If the configured model is already qualified for the same provider,
+                # keep the suffix the user chose. Otherwise fall back to the provider-
+                # specific vision override when one exists.
+                if main_model and main_model.startswith(f"{main_provider}/"):
+                    vision_model = main_model.split("/", 1)[1]
+                else:
+                    vision_model = _PROVIDER_VISION_MODELS.get(main_provider, main_model)
                 rpc_client, rpc_model = resolve_provider_client(
                     main_provider, vision_model,
                     api_mode=resolved_api_mode)

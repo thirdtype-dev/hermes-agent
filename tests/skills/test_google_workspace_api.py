@@ -46,6 +46,10 @@ def api_module(monkeypatch, tmp_path):
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
+
+    # The wrapper has an authentication gate before it shells out to gws.
+    # Seed a dummy token so tests can exercise the command construction path.
+    module.TOKEN_PATH.write_text(json.dumps({"token": "ya29.test", "scopes": []}), encoding="utf-8")
     return module
 
 
@@ -130,20 +134,26 @@ def test_api_calendar_list_uses_agenda_by_default(api_module):
 
     def capture_run(cmd, **kwargs):
         captured["cmd"] = cmd
-        return MagicMock(returncode=0)
+        return MagicMock(returncode=0, stdout="{}", stderr="")
 
     args = api_module.argparse.Namespace(
         start="", end="", max=25, calendar="primary", func=api_module.calendar_list,
     )
 
     with patch.object(subprocess, "run", side_effect=capture_run):
-        with pytest.raises(SystemExit):
-            api_module.calendar_list(args)
+        api_module.calendar_list(args)
 
     gws_args = captured["cmd"][2:]  # skip python + bridge path
-    assert "calendar" in gws_args
-    assert "+agenda" in gws_args
-    assert "--days" in gws_args
+    assert "events" in gws_args
+    assert "list" in gws_args
+    params_idx = gws_args.index("--params")
+    params = json.loads(gws_args[params_idx + 1])
+    assert params["calendarId"] == "primary"
+    assert params["maxResults"] == 25
+    assert params["singleEvents"] is True
+    assert params["orderBy"] == "startTime"
+    assert "timeMin" in params
+    assert "timeMax" in params
 
 
 def test_api_calendar_list_respects_date_range(api_module):
@@ -152,7 +162,7 @@ def test_api_calendar_list_respects_date_range(api_module):
 
     def capture_run(cmd, **kwargs):
         captured["cmd"] = cmd
-        return MagicMock(returncode=0)
+        return MagicMock(returncode=0, stdout="{}", stderr="")
 
     args = api_module.argparse.Namespace(
         start="2026-04-01T00:00:00Z",
@@ -163,8 +173,7 @@ def test_api_calendar_list_respects_date_range(api_module):
     )
 
     with patch.object(subprocess, "run", side_effect=capture_run):
-        with pytest.raises(SystemExit):
-            api_module.calendar_list(args)
+        api_module.calendar_list(args)
 
     gws_args = captured["cmd"][2:]
     assert "events" in gws_args

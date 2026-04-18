@@ -94,7 +94,11 @@ def _is_blocked_device(filepath: str) -> bool:
 # terminal tool's approval system.  These match prefixes after os.path.realpath.
 _SENSITIVE_PATH_PREFIXES = (
     "/etc/", "/boot/", "/usr/lib/systemd/",
-    "/private/etc/", "/private/var/",
+    "/private/etc/",
+    # macOS temp directories resolve under /private/var/folders, which are
+    # user-writable and should remain usable in tests and normal workflows.
+    # Keep only truly sensitive subpaths blocked instead of the whole tree.
+    "/private/var/db/", "/private/var/run/", "/private/var/vm/",
 )
 _SENSITIVE_EXACT_PATHS = {"/var/run/docker.sock", "/run/docker.sock"}
 

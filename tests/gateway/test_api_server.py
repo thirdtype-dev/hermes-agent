@@ -240,6 +240,17 @@ def auth_adapter():
     return _make_adapter(api_key="sk-secret")
 
 
+@pytest.mark.asyncio
+async def test_disconnect_closes_response_store(adapter):
+    """APIServerAdapter.disconnect() should release the SQLite response store."""
+    close_mock = MagicMock()
+    adapter._response_store.close = close_mock
+
+    await adapter.disconnect()
+
+    close_mock.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # /health endpoint
 # ---------------------------------------------------------------------------
