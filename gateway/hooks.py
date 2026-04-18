@@ -66,14 +66,15 @@ class HookRegistry:
             })
 
             self._handlers.setdefault("gateway:startup", []).append(live_workers_handle)
+            self._handlers.setdefault("session:start", []).append(live_workers_handle)
             self._loaded_hooks.append({
                 "name": "live-workers",
-                "description": "Sync AIAgent workers from ~/.hermes/LIVE_WORKERS.md on gateway startup",
-                "events": ["gateway:startup"],
+                "description": "Run ~/.hermes/LIVE_WORKERS.md on gateway startup and session start",
+                "events": ["gateway:startup", "session:start"],
                 "path": "(builtin)",
             })
         except Exception as e:
-            print(f"[hooks] Could not load built-in startup hooks: {e}", flush=True)
+            print(f"[hooks] Could not load built-in boot-md/live-workers hook: {e}", flush=True)
 
     def discover_and_load(self) -> None:
         """

@@ -87,6 +87,35 @@ def check_delegate_requirements() -> bool:
     return True
 
 
+def _try_live_worker_respawn() -> Dict[str, Any]:
+    """Best-effort trigger for Beads-based live-worker respawn."""
+    try:
+        from gateway.builtin_hooks.live_workers import trigger_live_workers_once
+        return trigger_live_workers_once(event_type="delegate:failure-recovery")
+    except Exception as exc:
+        logger.warning("live worker respawn trigger failed: %s", exc)
+        return {
+            "ok": False,
+            "reason": "respawn_trigger_exception",
+            "error": str(exc),
+            "spawned_workers": [],
+        }
+
+
+def _delegate_unavailable_error(reason: str) -> str:
+    """Structured delegation-unavailable response with recovery hints."""
+    respawn = _try_live_worker_respawn()
+    return json.dumps({
+        "error": reason,
+        "delegate_available": False,
+        "recovery_policy": (
+            "Recover through Beads orchestration: ensure the task exists in Beads, "
+            "assign owner/assignee, then let live-worker spawn handle execution."
+        ),
+        "live_worker_respawn": respawn,
+    }, ensure_ascii=False)
+
+
 def _build_child_system_prompt(
     goal: str,
     context: Optional[str] = None,
@@ -641,17 +670,15 @@ def delegate_task(
     Returns JSON with results array, one entry per task.
     """
     if parent_agent is None:
-        return tool_error("delegate_task requires a parent agent context.")
+        return _delegate_unavailable_error("delegate_task requires a parent agent context.")
 
     # Depth limit
     depth = getattr(parent_agent, '_delegate_depth', 0)
     if depth >= MAX_DEPTH:
-        return json.dumps({
-            "error": (
-                f"Delegation depth limit reached ({MAX_DEPTH}). "
-                "Subagents cannot spawn further subagents."
-            )
-        })
+        return _delegate_unavailable_error(
+            f"Delegation depth limit reached ({MAX_DEPTH}). "
+            "Subagents cannot spawn further subagents."
+        )
 
     # Load config
     cfg = _load_config()
@@ -666,13 +693,13 @@ def delegate_task(
     try:
         creds = _resolve_delegation_credentials(cfg, parent_agent)
     except ValueError as exc:
-        return tool_error(str(exc))
+        return _delegate_unavailable_error(str(exc))
 
     # Normalize to task list
     max_children = _get_max_concurrent_children()
     if tasks and isinstance(tasks, list):
         if len(tasks) > max_children:
-            return tool_error(
+            return _delegate_unavailable_error(
                 f"Too many tasks: {len(tasks)} provided, but "
                 f"max_concurrent_children is {max_children}. "
                 f"Either reduce the task count, split into multiple "
@@ -808,10 +835,14 @@ def delegate_task(
 
     total_duration = round(time.monotonic() - overall_start, 2)
 
-    return json.dumps({
+    payload = {
         "results": results,
         "total_duration_seconds": total_duration,
-    }, ensure_ascii=False)
+    }
+    if results and all(r.get("status") in ("error", "failed") for r in results):
+        payload["live_worker_respawn"] = _try_live_worker_respawn()
+
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _resolve_child_credential_pool(effective_provider: Optional[str], parent_agent):

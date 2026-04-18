@@ -1,77 +1,344 @@
-"""Tests for the built-in live-workers startup hook."""
+"""Tests for the built-in live-workers hook."""
+
+import json
+import run_agent
+import shutil
+import subprocess
 
 import pytest
-from unittest.mock import patch
 
 from gateway.builtin_hooks import live_workers
 
 
-class DummyThread:
+def test_parse_live_workers_manifest_parses_blocks_and_metadata():
+    content = """## Worker: planner
+provider=openai-codex
+model=gpt-5.4-mini
+max_iterations=40
+quiet_mode=true
+skip_context_files=true
+skip_memory=true
+session_id=live-worker-planner
+
+Keep an eye on live beads and report blockers.
+
+## Worker: executor
+provider=custom
+model=google/gemma-4-e4b
+platform=gateway
+
+Triage the next smallest implementation step and keep it moving.
+"""
+
+    workers = live_workers.parse_live_workers_manifest(content)
+
+    assert [worker["name"] for worker in workers] == ["planner", "executor"]
+    assert workers[0]["metadata"]["provider"] == "openai-codex"
+    assert workers[0]["metadata"]["model"] == "gpt-5.4-mini"
+    assert workers[0]["metadata"]["max_iterations"] == 40
+    assert workers[0]["metadata"]["quiet_mode"] is True
+    assert workers[0]["prompt"] == "Keep an eye on live beads and report blockers."
+    assert workers[1]["metadata"]["platform"] == "gateway"
+    assert workers[1]["prompt"] == "Triage the next smallest implementation step and keep it moving."
+
+
+def test_bd_binary_prefers_real_binary_path_over_missing_path(monkeypatch, tmp_path):
+    bd_path = tmp_path / "bin" / "bd"
+    bd_path.parent.mkdir(parents=True)
+    bd_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(live_workers.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(live_workers, "_BD_CANDIDATES", ("bd", str(bd_path)))
+
+    assert live_workers._bd_binary() == str(bd_path)
+
+
+@pytest.mark.asyncio
+async def test_handle_spawns_only_workers_matching_ready_issue_assignees(tmp_path, monkeypatch):
+    live_file = tmp_path / "LIVE_WORKERS.md"
+    live_file.write_text(
+        """## Worker: planner
+provider=openai-codex
+model=gpt-5.4-mini
+session_id=live-worker-planner
+
+Keep an eye on live beads and report blockers.
+
+## Worker: executor
+provider=custom
+model=google/gemma-4-e4b
+session_id=live-worker-executor
+
+Triage the next smallest implementation step and keep it moving.
+""",
+        encoding="utf-8",
+    )
+
+    spawned = []
+    agent_calls = []
+    seen_env = {}
+
+    class DummyAgent:
+        def __init__(self, **kwargs):
+            agent_calls.append(kwargs)
+
+        def run_conversation(self, prompt):
+            agent_calls.append({"prompt": prompt})
+            return {"final_response": "[SILENT]"}
+
+    class DummyThread:
+        def __init__(self, target, args, name, daemon):
+            self.target = target
+            self.args = args
+            self.name = name
+            self.daemon = daemon
+
+        def start(self):
+            spawned.append((self.name, self.daemon))
+            self.target(*self.args)
+
+    ready_payload = {
+        "issues": [
+            {"id": "bd-1", "title": "Do the planner thing", "assignee": {"name": "planner"}},
+            {"id": "bd-2", "title": "Leave executor idle", "assignee": {"name": "someone-else"}},
+        ]
+    }
+
+    nas_beads = tmp_path / "nas" / ".beads"
+    nas_beads.mkdir(parents=True)
+
+    monkeypatch.setattr(live_workers, "LIVE_WORKERS_FILE", live_file)
+    monkeypatch.setattr(live_workers, "_BEADS_DIR", nas_beads)
+    monkeypatch.delenv("BEADS_DIR", raising=False)
+    monkeypatch.setattr(live_workers, "start_live_worker_poller", lambda interval_seconds=None: False)
+    monkeypatch.setattr(run_agent, "AIAgent", DummyAgent)
+    monkeypatch.setattr(live_workers.threading, "Thread", DummyThread)
+    monkeypatch.setattr(live_workers.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        live_workers.subprocess,
+        "run",
+        lambda *args, **kwargs: seen_env.update(kwargs.get("env", {})) or subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(ready_payload),
+            stderr="",
+        ),
+    )
+
+    await live_workers.handle("gateway:startup", {})
+
+    assert spawned == [("live-worker-planner", True)]
+    assert seen_env["BEADS_DIR"] == str(nas_beads)
+    assert agent_calls[0]["provider"] == "openai-codex"
+    assert agent_calls[0]["model"] == "gpt-5.4-mini"
+    assert agent_calls[0]["session_id"] == "live-worker-planner"
+    assert agent_calls[1]["prompt"].startswith("You are Hermes live worker 'planner'")
+
+
+@pytest.mark.asyncio
+async def test_trigger_live_workers_once_skips_bd_lookup_when_manifest_missing(tmp_path, monkeypatch):
+    missing_live_file = tmp_path / "LIVE_WORKERS.md"
+    monkeypatch.setattr(live_workers, "LIVE_WORKERS_FILE", missing_live_file)
+    monkeypatch.setattr(
+        live_workers,
+        "_ready_assignees_from_bd",
+        lambda: (_ for _ in ()).throw(AssertionError("bd lookup should not run without a manifest")),
+    )
+
+    result = live_workers.trigger_live_workers_once("manual")
+
+    assert result["reason"] == "manifest_missing"
+    assert result["spawned_workers"] == []
+
+
+@pytest.mark.asyncio
+async def test_handle_skips_workers_without_matching_ready_assignees(tmp_path, monkeypatch):
+    live_file = tmp_path / "LIVE_WORKERS.md"
+    live_file.write_text(
+        """## Worker: planner
+provider=openai-codex
+model=gpt-5.4-mini
+session_id=live-worker-planner
+
+Keep an eye on live beads and report blockers.
+""",
+        encoding="utf-8",
+    )
+
+    spawned = []
+
+    class DummyThread:
+        def __init__(self, target, args, name, daemon):
+            self.target = target
+            self.args = args
+            self.name = name
+            self.daemon = daemon
+
+        def start(self):
+            spawned.append((self.name, self.daemon))
+            self.target(*self.args)
+
+    monkeypatch.setattr(live_workers, "LIVE_WORKERS_FILE", live_file)
+    monkeypatch.setattr(live_workers, "start_live_worker_poller", lambda interval_seconds=None: False)
+    monkeypatch.setattr(live_workers.threading, "Thread", DummyThread)
+    monkeypatch.setattr(live_workers.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        live_workers.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps({"issues": [{"assignee": {"name": "not-planner"}}]}),
+            stderr="",
+        ),
+    )
+
+    await live_workers.handle("gateway:startup", {})
+
+    assert spawned == []
+
+
+@pytest.mark.asyncio
+async def test_handle_retries_transient_worker_failures(tmp_path, monkeypatch):
+    live_file = tmp_path / "LIVE_WORKERS.md"
+    live_file.write_text(
+        """## Worker: planner
+provider=openai-codex
+model=gpt-5.4-mini
+session_id=live-worker-planner
+
+Keep an eye on live beads and report blockers.
+""",
+        encoding="utf-8",
+    )
+
+    attempts = {"count": 0}
+    sleep_calls = []
+
+    class FlakyAgent:
+        def __init__(self, **kwargs):
+            attempts["count"] += 1
+            self._attempt = attempts["count"]
+
+        def run_conversation(self, prompt):
+            if self._attempt == 1:
+                raise RuntimeError("temporary auth failure")
+            return {"final_response": "[SILENT]"}
+
+    class DummyThread:
+        def __init__(self, target, args, name, daemon):
+            self.target = target
+            self.args = args
+            self.name = name
+            self.daemon = daemon
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(live_workers, "LIVE_WORKERS_FILE", live_file)
+    monkeypatch.setattr(live_workers, "start_live_worker_poller", lambda interval_seconds=None: False)
+    monkeypatch.setattr(run_agent, "AIAgent", FlakyAgent)
+    monkeypatch.setattr(live_workers.threading, "Thread", DummyThread)
+    monkeypatch.setattr(live_workers.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(
+        live_workers.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps({"issues": [{"assignee": {"name": "planner"}}]}),
+            stderr="",
+        ),
+    )
+
+    await live_workers.handle("gateway:startup", {})
+
+    assert attempts["count"] == 2
+    assert sleep_calls == [5]
+
+
+def test_poll_live_workers_loop_triggers_until_stopped(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        live_workers,
+        "trigger_live_workers_once",
+        lambda event_type="manual": calls.append(event_type),
+    )
+
+    class StopEvent:
+        def __init__(self):
+            self.wait_calls = []
+
+        def wait(self, seconds):
+            self.wait_calls.append(seconds)
+            return True
+
+    stop_event = StopEvent()
+
+    live_workers._poll_live_workers_loop(stop_event=stop_event, interval_seconds=12)
+
+    assert calls == ["poll"]
+    assert stop_event.wait_calls == [12]
+
+
+def test_start_live_worker_poller_starts_only_once(monkeypatch):
+    started = []
     created = []
 
-    def __init__(self, target, args=(), name=None, daemon=None):
-        self.target = target
-        self.args = args
-        self.name = name
-        self.daemon = daemon
-        DummyThread.created.append(self)
+    class DummyEvent:
+        pass
 
-    def start(self):
-        return None
+    class DummyThread:
+        def __init__(self, target, kwargs=None, name=None, daemon=None):
+            self.target = target
+            self.kwargs = kwargs or {}
+            self.name = name
+            self.daemon = daemon
+            self.alive = True
+            created.append(self)
 
+        def start(self):
+            started.append(self.name)
 
-class TestLiveWorkersParsing:
-    def test_parse_workers_with_metadata_and_prompt(self):
-        content = (
-            "## Worker: planner\n"
-            "model=gpt-5.4-mini\n"
-            "max_iterations=40\n"
-            "\n"
-            "Keep an eye on live beads and report blockers.\n"
-            "\n"
-            "## Worker: executor\n"
-            "\n"
-            "Triage the next smallest implementation step and keep it moving.\n"
-        )
+        def is_alive(self):
+            return self.alive
 
-        workers = live_workers._parse_workers(content)
+    monkeypatch.setattr(live_workers, "_live_worker_poller_thread", None)
+    monkeypatch.setattr(live_workers, "_live_worker_poller_stop_event", None)
+    monkeypatch.setattr(live_workers.threading, "Event", DummyEvent)
+    monkeypatch.setattr(live_workers.threading, "Thread", DummyThread)
 
-        assert len(workers) == 2
-        assert workers[0]["name"] == "planner"
-        assert workers[0]["meta"]["model"] == "gpt-5.4-mini"
-        assert workers[0]["meta"]["max_iterations"] == "40"
-        assert "live beads" in workers[0]["prompt"]
-        assert workers[1]["name"] == "executor"
-        assert workers[1]["prompt"] == "Triage the next smallest implementation step and keep it moving."
+    assert live_workers.start_live_worker_poller(interval_seconds=7) is True
+    assert live_workers.start_live_worker_poller(interval_seconds=7) is False
+    assert started == ["live-worker-poller"]
+    assert created[0].kwargs["interval_seconds"] == 7
 
 
-class TestLiveWorkersHandle:
-    @pytest.mark.asyncio
-    async def test_handle_spawns_one_thread_per_worker(self, tmp_path):
-        workers_file = tmp_path / "LIVE_WORKERS.md"
-        workers_file.write_text(
-            "## Worker: planner\n"
-            "model=gpt-5.4-mini\n"
-            "max_iterations=40\n"
-            "\n"
-            "Keep an eye on live beads and report blockers.\n"
-            "\n"
-            "## Worker: executor\n"
-            "\n"
-            "Triage the next smallest implementation step and keep it moving.\n",
-            encoding="utf-8",
-        )
+@pytest.mark.asyncio
+async def test_start_live_worker_poller_can_detect_pytest_without_nameerror(monkeypatch):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(live_workers, "_live_worker_poller_thread", None)
+    monkeypatch.setattr(live_workers, "_live_worker_poller_stop_event", None)
 
-        DummyThread.created = []
-        with patch.object(live_workers, "WORKERS_FILE", workers_file), patch.object(
-            live_workers.threading, "Thread", DummyThread
-        ):
-            await live_workers.handle("gateway:startup", {})
+    result = live_workers.start_live_worker_poller(allow_when_testing=False)
 
-        assert len(DummyThread.created) == 2
-        assert DummyThread.created[0].name.startswith("live-worker-planner")
-        assert DummyThread.created[0].args[0] == "planner"
-        assert "report blockers" in DummyThread.created[0].args[1]
-        assert DummyThread.created[0].daemon is True
-        assert DummyThread.created[1].name.startswith("live-worker-executor")
-        assert DummyThread.created[1].args[0] == "executor"
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_handle_silently_skips_missing_manifest(tmp_path, monkeypatch):
+    monkeypatch.setattr(live_workers, "LIVE_WORKERS_FILE", tmp_path / "missing.md")
+    monkeypatch.setattr(live_workers, "start_live_worker_poller", lambda interval_seconds=None: False)
+    monkeypatch.setattr(
+        live_workers.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps({"issues": []}),
+            stderr="",
+        ),
+    )
+
+    # Should not raise.
+    await live_workers.handle("gateway:startup", {})
