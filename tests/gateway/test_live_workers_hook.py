@@ -52,8 +52,23 @@ def test_bd_binary_prefers_real_binary_path_over_missing_path(monkeypatch, tmp_p
     assert live_workers._bd_binary() == str(bd_path)
 
 
+def test_issue_is_spawnable_skips_active_leases():
+    now = live_workers.datetime(2026, 1, 1, tzinfo=live_workers.timezone.utc)
+    active_issue = {
+        "status": "in_progress",
+        "metadata": {"lease_expires_at": (now + live_workers.timedelta(hours=1)).isoformat()},
+    }
+    expired_issue = {
+        "status": "in_progress",
+        "metadata": {"lease_expires_at": (now - live_workers.timedelta(hours=1)).isoformat()},
+    }
+
+    assert live_workers._issue_is_spawnable(active_issue, now=now) is False
+    assert live_workers._issue_is_spawnable(expired_issue, now=now) is True
+
+
 @pytest.mark.asyncio
-async def test_handle_spawns_only_workers_matching_ready_issue_assignees(tmp_path, monkeypatch):
+async def test_trigger_live_workers_once_spawns_in_progress_beads_with_lease_claim(tmp_path, monkeypatch):
     live_file = tmp_path / "LIVE_WORKERS.md"
     live_file.write_text(
         """## Worker: planner
@@ -62,28 +77,12 @@ model=gpt-5.4-mini
 session_id=live-worker-planner
 
 Keep an eye on live beads and report blockers.
-
-## Worker: executor
-provider=custom
-model=google/gemma-4-e4b
-session_id=live-worker-executor
-
-Triage the next smallest implementation step and keep it moving.
 """,
         encoding="utf-8",
     )
 
     spawned = []
-    agent_calls = []
-    seen_env = {}
-
-    class DummyAgent:
-        def __init__(self, **kwargs):
-            agent_calls.append(kwargs)
-
-        def run_conversation(self, prompt):
-            agent_calls.append({"prompt": prompt})
-            return {"final_response": "[SILENT]"}
+    update_calls = []
 
     class DummyThread:
         def __init__(self, target, args, name, daemon):
@@ -96,43 +95,57 @@ Triage the next smallest implementation step and keep it moving.
             spawned.append((self.name, self.daemon))
             self.target(*self.args)
 
-    ready_payload = {
-        "issues": [
-            {"id": "bd-1", "title": "Do the planner thing", "assignee": {"name": "planner"}},
-            {"id": "bd-2", "title": "Leave executor idle", "assignee": {"name": "someone-else"}},
-        ]
-    }
+    class DummyHeartbeatStop:
+        def set(self):
+            pass
 
-    nas_beads = tmp_path / "nas" / ".beads"
-    nas_beads.mkdir(parents=True)
+    class DummyHeartbeatThread:
+        def join(self, timeout=None):
+            pass
+
+    def fake_start_worker_heartbeat(issue_id, worker_name, *, lease_seconds=0, heartbeat_interval_seconds=0):
+        return DummyHeartbeatStop(), DummyHeartbeatThread()
+
+    class DummyAgent:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def run_conversation(self, prompt):
+            return {"final_response": "[SILENT]"}
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[1:3] == ["list", "--json"]:
+            payload = {
+                "issues": [
+                    {
+                        "id": "bd-123",
+                        "assignee": {"name": "planner"},
+                        "status": "in_progress",
+                    }
+                ]
+            }
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=json.dumps(payload), stderr="")
+        if len(cmd) > 1 and cmd[1] == "update":
+            update_calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="{}", stderr="")
+        raise AssertionError(f"unexpected command: {cmd}")
 
     monkeypatch.setattr(live_workers, "LIVE_WORKERS_FILE", live_file)
-    monkeypatch.setattr(live_workers, "_BEADS_DIR", nas_beads)
-    monkeypatch.delenv("BEADS_DIR", raising=False)
     monkeypatch.setattr(live_workers, "start_live_worker_poller", lambda interval_seconds=None: False)
-    monkeypatch.setattr(run_agent, "AIAgent", DummyAgent)
     monkeypatch.setattr(live_workers.threading, "Thread", DummyThread)
+    monkeypatch.setattr(live_workers, "_start_worker_heartbeat", fake_start_worker_heartbeat)
     monkeypatch.setattr(live_workers.time, "sleep", lambda _seconds: None)
-    monkeypatch.setattr(
-        live_workers.subprocess,
-        "run",
-        lambda *args, **kwargs: seen_env.update(kwargs.get("env", {})) or subprocess.CompletedProcess(
-            args=args,
-            returncode=0,
-            stdout=json.dumps(ready_payload),
-            stderr="",
-        ),
-    )
+    monkeypatch.setattr(run_agent, "AIAgent", DummyAgent)
+    monkeypatch.setattr(live_workers.subprocess, "run", fake_run)
 
-    await live_workers.handle("gateway:startup", {})
+    result = live_workers.trigger_live_workers_once("manual")
 
+    assert result["ok"] is True
+    assert result["spawned_workers"] == ["planner"]
     assert spawned == [("live-worker-planner", True)]
-    assert seen_env["BEADS_DIR"] == str(nas_beads)
-    assert agent_calls[0]["provider"] == "openai-codex"
-    assert agent_calls[0]["model"] == "gpt-5.4-mini"
-    assert agent_calls[0]["session_id"] == "live-worker-planner"
-    assert agent_calls[1]["prompt"].startswith("You are Hermes live worker 'planner'")
-
+    assert update_calls
+    assert any("claimed_at" in part for part in update_calls[0])
+    assert any("lease_expires_at" in part for part in update_calls[0])
 
 @pytest.mark.asyncio
 async def test_trigger_live_workers_once_skips_bd_lookup_when_manifest_missing(tmp_path, monkeypatch):

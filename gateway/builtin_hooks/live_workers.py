@@ -34,6 +34,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -49,6 +50,10 @@ _BOOL_FALSE = {"false", "0", "no", "off"}
 _LIVE_WORKER_RETRY_DELAY_SECONDS = 5
 _LIVE_WORKER_MAX_RETRY_DELAY_SECONDS = 60
 _LIVE_WORKER_POLL_INTERVAL_SECONDS = 30
+_LIVE_WORKER_LEASE_TIMEOUT_SECONDS = 180
+_LIVE_WORKER_HEARTBEAT_INTERVAL_SECONDS = 30
+_LIVE_WORKER_HEARTBEAT_RETRY_DELAY_SECONDS = 5
+_LIVE_WORKER_HEARTBEAT_MAX_RETRY_DELAY_SECONDS = 30
 _NAS_BEADS_DIR = Path("/data/.beads")
 _BD_CANDIDATES = (
     "bd",
@@ -313,6 +318,289 @@ def _ready_assignees_from_bd() -> set[str]:
     return {assignee for assignee in assignees if assignee}
 
 
+def _status_token(issue: Dict[str, Any]) -> str:
+    for key in ("status", "state", "status_name", "task_status"):
+        value = issue.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+        if isinstance(value, dict):
+            for nested_key in ("name", "value", "slug", "id"):
+                nested_value = value.get(nested_key)
+                if isinstance(nested_value, str) and nested_value.strip():
+                    return nested_value.strip().lower()
+    metadata = issue.get("metadata")
+    if isinstance(metadata, dict):
+        for key in ("status", "state", "status_name", "task_status"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().lower()
+    return ""
+
+
+def _parse_datetimeish(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.isdigit():
+            return datetime.fromtimestamp(float(raw), tz=timezone.utc)
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _issue_lease_expires_at(issue: Dict[str, Any]) -> datetime | None:
+    metadata = issue.get("metadata") if isinstance(issue.get("metadata"), dict) else {}
+    candidates = []
+    for source in (issue, metadata):
+        if isinstance(source, dict):
+            for key in ("lease_expires_at", "leaseExpiresAt", "lease_expiry", "leaseExpiry"):
+                if key in source:
+                    candidates.append(source.get(key))
+    for candidate in candidates:
+        parsed = _parse_datetimeish(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _issue_has_active_lease(issue: Dict[str, Any], *, now: datetime | None = None) -> bool:
+    lease_expires_at = _issue_lease_expires_at(issue)
+    if lease_expires_at is None:
+        return False
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return lease_expires_at > current
+
+
+def _issue_is_spawnable(issue: Dict[str, Any], *, now: datetime | None = None) -> bool:
+    if _issue_has_active_lease(issue, now=now):
+        return False
+
+    status = _status_token(issue)
+    if status in ("", "ready", "stale", "reclaimable"):
+        return True
+    if status in ("in_progress", "in-progress", "running", "active"):
+        return True
+    return False
+
+
+def _spawnable_issue_records_from_bd() -> List[Dict[str, Any]]:
+    try:
+        completed = subprocess.run(
+            [_bd_binary(), "list", "--json"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+            env=_bd_ready_env(),
+        )
+    except FileNotFoundError:
+        logger.warning("bd command not found; skipping live worker spawn")
+        return []
+    except subprocess.TimeoutExpired:
+        logger.warning("bd list --json timed out; skipping live worker spawn")
+        return []
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or exc.stdout or "").strip()
+        if stderr:
+            logger.warning("bd list --json failed: %s", stderr)
+        else:
+            logger.warning("bd list --json failed with exit code %s", exc.returncode)
+        return []
+
+    raw_output = (completed.stdout or "").strip()
+    if not raw_output:
+        return []
+
+    try:
+        payload = json.loads(raw_output)
+    except json.JSONDecodeError as exc:
+        logger.warning("Could not parse bd list --json output: %s", exc)
+        return []
+
+    issues: List[Dict[str, Any]] = []
+    for issue in _iter_issue_records(payload):
+        if _issue_is_spawnable(issue):
+            issues.append(issue)
+    return issues
+
+
+def _issue_id(issue: Dict[str, Any]) -> str:
+    for key in ("id", "issue_id", "issueId", "key", "slug"):
+        value = issue.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _issue_assignee_tokens(issue: Dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for field in ("assignee", "assignees", "assigned_to", "assignedTo", "owner", "owners"):
+        tokens.update(_normalize_assignee_tokens(issue.get(field)))
+    nested_user = issue.get("user")
+    tokens.update(_normalize_assignee_tokens(nested_user))
+    return {token for token in tokens if token}
+
+
+def _now_utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _update_issue_record(
+    issue_id: str,
+    *,
+    status: str | None = None,
+    assignee: str | None = None,
+    set_metadata: Dict[str, Any] | None = None,
+    unset_metadata: List[str] | None = None,
+    timeout: int = 10,
+) -> bool:
+    issue_id = issue_id.strip()
+    if not issue_id:
+        return False
+
+    cmd = [_bd_binary(), "update", issue_id]
+    if status is not None:
+        cmd.extend(["--status", status])
+    if assignee is not None:
+        cmd.extend(["--assignee", assignee])
+    for key in unset_metadata or []:
+        if key:
+            cmd.extend(["--unset-metadata", key])
+    for key, value in (set_metadata or {}).items():
+        if not key or value is None:
+            continue
+        cmd.extend(["--set-metadata", f"{key}={value}"])
+
+    try:
+        subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=timeout,
+            env=_bd_ready_env(),
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Failed to update issue %s: %s", issue_id, exc)
+        return False
+
+
+def _refresh_worker_lease(issue_id: str, worker_name: str, *, lease_seconds: int = _LIVE_WORKER_LEASE_TIMEOUT_SECONDS) -> bool:
+    now = datetime.now(timezone.utc)
+    lease_expires_at = (now + timedelta(seconds=lease_seconds)).isoformat()
+    return _update_issue_record(
+        issue_id,
+        status="in_progress",
+        assignee=worker_name,
+        set_metadata={
+            "worker_id": worker_name,
+            "last_heartbeat_at": now.isoformat(),
+            "lease_expires_at": lease_expires_at,
+        },
+    )
+
+
+def _finalize_worker_lease(issue_id: str, worker_name: str) -> bool:
+    return _update_issue_record(
+        issue_id,
+        status="closed",
+        unset_metadata=["worker_id", "claimed_at", "last_heartbeat_at", "lease_expires_at"],
+    )
+
+
+def _worker_lease_heartbeat_loop(
+    issue_id: str,
+    worker_name: str,
+    stop_event: threading.Event,
+    lease_seconds: int = _LIVE_WORKER_LEASE_TIMEOUT_SECONDS,
+    heartbeat_interval_seconds: int = _LIVE_WORKER_HEARTBEAT_INTERVAL_SECONDS,
+    retry_delay_seconds: int = _LIVE_WORKER_HEARTBEAT_RETRY_DELAY_SECONDS,
+) -> None:
+    interval = _parse_intish(heartbeat_interval_seconds, default=_LIVE_WORKER_HEARTBEAT_INTERVAL_SECONDS)
+    if interval <= 0:
+        interval = _LIVE_WORKER_HEARTBEAT_INTERVAL_SECONDS
+
+    retry_delay = _parse_intish(retry_delay_seconds, default=_LIVE_WORKER_HEARTBEAT_RETRY_DELAY_SECONDS)
+    if retry_delay <= 0:
+        retry_delay = _LIVE_WORKER_HEARTBEAT_RETRY_DELAY_SECONDS
+
+    while True:
+        if stop_event.wait(interval):
+            return
+        if _refresh_worker_lease(issue_id, worker_name, lease_seconds=lease_seconds):
+            retry_delay = _LIVE_WORKER_HEARTBEAT_RETRY_DELAY_SECONDS
+            continue
+
+        logger.warning(
+            "live worker '%s' heartbeat update failed for %s; retrying in %ds",
+            worker_name,
+            issue_id,
+            retry_delay,
+        )
+        if stop_event.wait(retry_delay):
+            return
+        retry_delay = min(_LIVE_WORKER_HEARTBEAT_MAX_RETRY_DELAY_SECONDS, max(retry_delay * 2, retry_delay + 1))
+
+
+def _start_worker_heartbeat(
+    issue_id: str,
+    worker_name: str,
+    *,
+    lease_seconds: int = _LIVE_WORKER_LEASE_TIMEOUT_SECONDS,
+    heartbeat_interval_seconds: int = _LIVE_WORKER_HEARTBEAT_INTERVAL_SECONDS,
+) -> tuple[threading.Event, threading.Thread]:
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=_worker_lease_heartbeat_loop,
+        args=(
+            issue_id,
+            worker_name,
+            stop_event,
+            lease_seconds,
+            heartbeat_interval_seconds,
+            _LIVE_WORKER_HEARTBEAT_RETRY_DELAY_SECONDS,
+        ),
+        name=f"live-worker-heartbeat-{worker_name}",
+        daemon=True,
+    )
+    thread.start()
+    return stop_event, thread
+
+
+def _claim_worker_lease(issue_id: str, worker_name: str, *, lease_seconds: int = _LIVE_WORKER_LEASE_TIMEOUT_SECONDS) -> bool:
+    issue_id = issue_id.strip()
+    worker_name = worker_name.strip()
+    if not issue_id or not worker_name:
+        return False
+
+    now = datetime.now(timezone.utc)
+    lease_expires_at = (now + timedelta(seconds=lease_seconds)).isoformat()
+    return _update_issue_record(
+        issue_id,
+        status="in_progress",
+        assignee=worker_name,
+        set_metadata={
+            "worker_id": worker_name,
+            "claimed_at": now.isoformat(),
+            "last_heartbeat_at": now.isoformat(),
+            "lease_expires_at": lease_expires_at,
+        },
+    )
+
+
 def _worker_assignment_keys(worker: Dict[str, Any]) -> set[str]:
     metadata = worker.get("metadata", {})
     keys: set[str] = set()
@@ -523,12 +811,18 @@ def trigger_live_workers_once(event_type: str = "manual") -> Dict[str, Any]:
             "spawned_workers": [],
         }
 
-    ready_assignees = _ready_assignees_from_bd()
-    if not ready_assignees:
-        logger.info("[%s] No ready beads were assigned to live workers", event_type)
+    spawnable_issues = _spawnable_issue_records_from_bd()
+    spawnable_assignees = set()
+    if spawnable_issues:
+        for issue in spawnable_issues:
+            spawnable_assignees.update(_issue_assignee_tokens(issue))
+    else:
+        spawnable_assignees = _ready_assignees_from_bd()
+    if not spawnable_assignees:
+        logger.info("[%s] No spawnable beads were assigned to live workers", event_type)
         return {
             "ok": False,
-            "reason": "no_ready_assignees",
+            "reason": "no_spawnable_assignees",
             "event": event_type,
             "beads_dir": str(beads_dir),
             "spawned_workers": [],
@@ -556,30 +850,59 @@ def trigger_live_workers_once(event_type: str = "manual") -> Dict[str, Any]:
             "spawned_workers": [],
         }
 
-    selected_workers = []
-    for worker in workers:
-        assignment_keys = _worker_assignment_keys(worker)
-        if assignment_keys & ready_assignees:
+    selected_workers: List[Dict[str, Any]] = []
+    if spawnable_issues:
+        for worker in workers:
+            assignment_keys = _worker_assignment_keys(worker)
+            matched_issue = None
+            for issue in spawnable_issues:
+                issue_tokens = _issue_assignee_tokens(issue)
+                if assignment_keys & issue_tokens:
+                    matched_issue = issue
+                    break
+            if matched_issue is None:
+                logger.info(
+                    "Skipping live worker '%s' — no spawnable bead assignee matched %s",
+                    worker["name"],
+                    sorted(assignment_keys),
+                )
+                continue
+            issue_id = _issue_id(matched_issue)
+            if issue_id and not _claim_worker_lease(issue_id, worker["name"]):
+                logger.info(
+                    "Skipping live worker '%s' — lease claim failed for issue %s",
+                    worker["name"],
+                    issue_id,
+                )
+                continue
+            if issue_id:
+                worker["metadata"] = dict(worker.get("metadata", {}))
+                worker["metadata"]["issue_id"] = issue_id
             selected_workers.append(worker)
-        else:
-            logger.info(
-                "Skipping live worker '%s' — no ready bead assignee matched %s",
-                worker["name"],
-                sorted(assignment_keys),
-            )
+    else:
+        for worker in workers:
+            assignment_keys = _worker_assignment_keys(worker)
+            if assignment_keys & spawnable_assignees:
+                selected_workers.append(worker)
+            else:
+                logger.info(
+                    "Skipping live worker '%s' — no spawnable bead assignee matched %s",
+                    worker["name"],
+                    sorted(assignment_keys),
+                )
 
     if not selected_workers:
         logger.info(
-            "[%s] No live workers matched ready bead assignees: %s",
+            "[%s] No live workers matched spawnable bead assignees: %s",
             event_type,
-            sorted(ready_assignees),
+            sorted(spawnable_assignees),
         )
         return {
             "ok": False,
             "reason": "no_matching_workers",
             "event": event_type,
             "beads_dir": str(beads_dir),
-            "ready_assignees": sorted(ready_assignees),
+            "spawnable_assignees": sorted(spawnable_assignees),
             "spawned_workers": [],
         }
 
@@ -615,6 +938,6 @@ def trigger_live_workers_once(event_type: str = "manual") -> Dict[str, Any]:
         "reason": "spawned",
         "event": event_type,
         "beads_dir": str(beads_dir),
-        "ready_assignees": sorted(ready_assignees),
+        "spawnable_assignees": sorted(spawnable_assignees),
         "spawned_workers": spawned,
     }
